@@ -158,6 +158,10 @@ constexpr bool KEEP_CAMERA_INITIALIZED = false;
 constexpr bool AUTO_START_AV_ON_PAGE_LOAD = true;
 constexpr framesize_t CAMERA_FRAME_SIZE = FRAMESIZE_QVGA;
 constexpr int CAMERA_JPEG_QUALITY = 14;
+constexpr framesize_t RELAY_AV_CAMERA_FRAME_SIZE = FRAMESIZE_QVGA;
+constexpr int RELAY_AV_CAMERA_JPEG_QUALITY = 16;
+constexpr framesize_t RELAY_VIDEO_ONLY_CAMERA_FRAME_SIZE = FRAMESIZE_VGA;
+constexpr int RELAY_VIDEO_ONLY_CAMERA_JPEG_QUALITY = 14;
 constexpr framesize_t MQTT_AV_CAMERA_FRAME_SIZE = FRAMESIZE_QQVGA;
 constexpr int MQTT_AV_CAMERA_JPEG_QUALITY = 24;
 constexpr framesize_t MQTT_VIDEO_ONLY_CAMERA_FRAME_SIZE = FRAMESIZE_QVGA;
@@ -260,6 +264,8 @@ static void applyCameraSensorProfile(framesize_t frameSize, int jpegQuality, boo
 static void markMqttDisconnected(const char *status);
 static bool mqttTalkbackActive();
 static bool mqttHasBrokerCredentials();
+static bool relayTalkbackActive();
+static bool hybridCloudMode();
 
 static bool relayConfigured() {
   return RELAY_ENABLED &&
@@ -275,6 +281,10 @@ static bool mqttBridgeConfigured() {
          strlen(MQTT_DEVICE_ID) > 0 &&
          sharedKey.length() >= 16 &&
          sharedKey != "replace-with-very-long-random-shared-key";
+}
+
+static bool hybridCloudMode() {
+  return relayConfigured() && mqttBridgeConfigured();
 }
 
 static bool claimRelaySocket(uint32_t timeoutMs = 100) {
@@ -2270,8 +2280,14 @@ static void relayMediaTask(void *parameter) {
 
   for (;;) {
     bool didWork = false;
+    bool videoRequested = hybridCloudMode() ? mqttVideoRequested : relayVideoRequested;
+    bool audioRequested = hybridCloudMode() ? mqttAudioRequested : relayAudioRequested;
+    bool useRightChannel = hybridCloudMode() ? mqttUseRightChannel : relayUseRightChannel;
+    int audioShift = hybridCloudMode() ? mqttAudioShift : relayAudioShift;
+    int audioGain = hybridCloudMode() ? mqttAudioGain : relayAudioGain;
+    bool talkbackActive = relayTalkbackActive() || mqttTalkbackActive();
 
-    if (relayConfigured() && relayMediaConnected && relayAudioRequested) {
+    if (relayConfigured() && relayMediaConnected && audioRequested && !talkbackActive) {
       if (microphoneReady || initMicrophone()) {
         size_t bytesRead = 0;
         esp_err_t err = readMicrophoneSamples(rawSamples, AUDIO_FRAMES, &bytesRead, 60);
@@ -2283,9 +2299,9 @@ static void relayMediaTask(void *parameter) {
 
           convertMicFramesToPcm(rawSamples,
                                 frameCount,
-                                relayUseRightChannel,
-                                relayAudioShift,
-                                relayAudioGain,
+                                useRightChannel,
+                                audioShift,
+                                audioGain,
                                 dcEstimate,
                                 pcmSamples);
 
@@ -2302,9 +2318,15 @@ static void relayMediaTask(void *parameter) {
     unsigned long now = millis();
     if (relayConfigured() &&
         relayMediaConnected &&
-        relayVideoRequested &&
+        videoRequested &&
+        !talkbackActive &&
         now - lastVideoAt >= RELAY_FRAME_INTERVAL_MS) {
       if (initCamera()) {
+        if (audioRequested) {
+          applyCameraSensorProfile(RELAY_AV_CAMERA_FRAME_SIZE, RELAY_AV_CAMERA_JPEG_QUALITY, false);
+        } else {
+          applyCameraSensorProfile(RELAY_VIDEO_ONLY_CAMERA_FRAME_SIZE, RELAY_VIDEO_ONLY_CAMERA_JPEG_QUALITY, false);
+        }
         camera_fb_t *fb = esp_camera_fb_get();
         lastCameraUseMs = millis();
         if (fb != nullptr) {
@@ -2325,7 +2347,7 @@ static void relayMediaTask(void *parameter) {
     }
 
     if (!didWork) {
-      vTaskDelay(pdMS_TO_TICKS(relayAudioRequested ? 4 : 20));
+      vTaskDelay(pdMS_TO_TICKS(audioRequested ? 4 : 20));
     } else {
       taskYIELD();
     }
@@ -2339,36 +2361,46 @@ static void startRelayClients() {
     return;
   }
 
-  relayControlPath = relayBuildPath("control");
   relayMediaPath = relayBuildPath("media");
   relaySpeakerPath = relayBuildPath("speaker");
+  relayControlPath = hybridCloudMode() ? "" : relayBuildPath("control");
   relaySocketMutex = xSemaphoreCreateRecursiveMutex();
 
-  relayControlSocket.onEvent(relayControlSocketEvent);
   relayMediaSocket.onEvent(relayMediaSocketEvent);
   relaySpeakerSocket.onEvent(relaySpeakerSocketEvent);
-
-  if (RELAY_USE_TLS) {
-    relayControlSocket.beginSSL(RELAY_HOST, RELAY_PORT, relayControlPath.c_str());
-    relayMediaSocket.beginSSL(RELAY_HOST, RELAY_PORT, relayMediaPath.c_str());
-    relaySpeakerSocket.beginSSL(RELAY_HOST, RELAY_PORT, relaySpeakerPath.c_str());
-#if RELAY_ALLOW_INSECURE_TLS
-    relayControlSocket.setInsecure();
-    relayMediaSocket.setInsecure();
-    relaySpeakerSocket.setInsecure();
-#endif
-  } else {
-    relayControlSocket.begin(RELAY_HOST, RELAY_PORT, relayControlPath.c_str());
-    relayMediaSocket.begin(RELAY_HOST, RELAY_PORT, relayMediaPath.c_str());
-    relaySpeakerSocket.begin(RELAY_HOST, RELAY_PORT, relaySpeakerPath.c_str());
+  if (!hybridCloudMode()) {
+    relayControlSocket.onEvent(relayControlSocketEvent);
   }
 
-  relayControlSocket.setReconnectInterval(RELAY_RECONNECT_INTERVAL_MS);
+  if (RELAY_USE_TLS) {
+    relayMediaSocket.beginSSL(RELAY_HOST, RELAY_PORT, relayMediaPath.c_str());
+    relaySpeakerSocket.beginSSL(RELAY_HOST, RELAY_PORT, relaySpeakerPath.c_str());
+    if (!hybridCloudMode()) {
+      relayControlSocket.beginSSL(RELAY_HOST, RELAY_PORT, relayControlPath.c_str());
+    }
+#if RELAY_ALLOW_INSECURE_TLS
+    relayMediaSocket.setInsecure();
+    relaySpeakerSocket.setInsecure();
+    if (!hybridCloudMode()) {
+      relayControlSocket.setInsecure();
+    }
+#endif
+  } else {
+    relayMediaSocket.begin(RELAY_HOST, RELAY_PORT, relayMediaPath.c_str());
+    relaySpeakerSocket.begin(RELAY_HOST, RELAY_PORT, relaySpeakerPath.c_str());
+    if (!hybridCloudMode()) {
+      relayControlSocket.begin(RELAY_HOST, RELAY_PORT, relayControlPath.c_str());
+    }
+  }
+
   relayMediaSocket.setReconnectInterval(RELAY_RECONNECT_INTERVAL_MS);
   relaySpeakerSocket.setReconnectInterval(RELAY_RECONNECT_INTERVAL_MS);
-  relayControlSocket.enableHeartbeat(15000, 3000, 2);
   relayMediaSocket.enableHeartbeat(15000, 3000, 2);
   relaySpeakerSocket.enableHeartbeat(15000, 3000, 2);
+  if (!hybridCloudMode()) {
+    relayControlSocket.setReconnectInterval(RELAY_RECONNECT_INTERVAL_MS);
+    relayControlSocket.enableHeartbeat(15000, 3000, 2);
+  }
 
   BaseType_t taskStarted = xTaskCreatePinnedToCore(
       relayMediaTask,
@@ -2379,7 +2411,7 @@ static void startRelayClients() {
       &relayMediaTaskHandle,
       1);
 
-  Serial.print("Cloud relay configured: ");
+  Serial.print(hybridCloudMode() ? "Cloud media relay configured: " : "Cloud relay configured: ");
   Serial.println(RELAY_HOST);
   if (taskStarted != pdPASS) {
     relayStatus = "cloud_task_failed";
@@ -2443,6 +2475,12 @@ static bool mqttTalkbackActive() {
   return speakerStatus == "mqtt_talkback" &&
          lastMqttSpeakerChunkMs > 0 &&
          millis() - lastMqttSpeakerChunkMs < 1500;
+}
+
+static bool relayTalkbackActive() {
+  return speakerStatus == "relay_talkback" &&
+         lastRelaySpeakerChunkMs > 0 &&
+         millis() - lastRelaySpeakerChunkMs < 1500;
 }
 
 static bool mqttHasBrokerCredentials() {
@@ -2575,7 +2613,9 @@ static bool connectMqttBridge() {
   mqttConnected = true;
   mqttStatus = "mqtt_connected";
   mqttClient.subscribe(mqttControlTopic.c_str(), 0);
-  mqttClient.subscribe(mqttSpeakerTopic.c_str(), 0);
+  if (!relayConfigured()) {
+    mqttClient.subscribe(mqttSpeakerTopic.c_str(), 0);
+  }
   mqttClient.publish(mqttPresenceTopic.c_str(), "1", true);
   releaseMqttClient();
   mqttSendStateLine();
@@ -2676,6 +2716,11 @@ static void startMqttBridge() {
   mqttStateTopic = mqttTopicFor("state");
   mqttPresenceTopic = mqttTopicFor("presence");
   mqttClientMutex = xSemaphoreCreateRecursiveMutex();
+
+  if (hybridCloudMode()) {
+    Serial.println("MQTT control/state mode active; media handled by relay");
+    return;
+  }
 
   BaseType_t taskStarted = xTaskCreatePinnedToCore(
       mqttMediaTask,
@@ -2825,7 +2870,9 @@ void loop() {
   server.handleClient();
 
   if (relayConfigured() && claimRelaySocket(20)) {
-    relayControlSocket.loop();
+    if (!hybridCloudMode()) {
+      relayControlSocket.loop();
+    }
     relayMediaSocket.loop();
     relaySpeakerSocket.loop();
     releaseRelaySocket();
@@ -2850,7 +2897,7 @@ void loop() {
     stopCamera();
   }
 
-  if (relayConfigured() && relayControlConnected && now - lastRelayStateMs >= RELAY_STATE_INTERVAL_MS) {
+  if (!hybridCloudMode() && relayConfigured() && relayControlConnected && now - lastRelayStateMs >= RELAY_STATE_INTERVAL_MS) {
     lastRelayStateMs = now;
     relaySendStateLine();
   }

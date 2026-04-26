@@ -1,12 +1,13 @@
 # Cloud relay
 
-Node.js relay для схеми:
+Node.js relay for the hybrid architecture:
 
-- `ESP32 -> WSS relay` для відео та аудіо з плати
-- `GitHub Pages -> WSS relay` для перегляду
-- `браузерний мікрофон -> WSS relay -> ESP32 speaker`
+- `ESP32 -> WSS relay` for board video and board microphone audio
+- `GitHub Pages -> WSS relay` for playback in the browser
+- `browser microphone -> WSS relay -> ESP32 speaker` for talkback
+- `MQTT` stays separate and is used only for control/state
 
-## Швидкий старт
+## Quick start
 
 ```powershell
 cd cloud-relay
@@ -15,22 +16,25 @@ npm install
 npm start
 ```
 
-За замовчуванням relay слухає порт `8080`.
+By default the relay listens on port `8080`.
 
-## Обов'язкові секрети
+## Required secrets
 
 - `DEVICE_ID`
 - `DEVICE_TOKEN`
 - `VIEWER_TOKEN`
 
-`DEVICE_TOKEN` прошивається в ESP через `include/relay_config.h`.
+`DEVICE_TOKEN` is flashed into the board through `include/relay_config.h`.
 
-`VIEWER_TOKEN` вводиться на GitHub Pages сторінці вручну.
+`VIEWER_TOKEN` is entered manually on the GitHub Pages site.
 
-## Продакшн
+## Production
 
-Рекомендовано поставити relay за `Caddy` або `Nginx`, щоб отримати:
+Recommended deployment:
 
-- `HTTPS` для сторінки
-- `WSS` для WebSocket
-- валідний TLS-сертифікат для мікрофона браузера
+- deploy `cloud-relay/` to a VPS or container host
+- place `Caddy` or `Nginx` in front of it
+- expose it as `https://relay.example.com`
+
+The relay must be reachable over HTTPS/WSS so browser microphone access keeps
+working on phones and modern desktop browsers.

@@ -8,7 +8,7 @@ PlatformIO firmware for the board marked `ESP32-S3-SPK` / `N16R8` with an
 - low-latency microphone audio: `ws://<board-ip>:81/audio.ws`
 - browser microphone to board speaker: `ws://<board-ip>:82/speaker.ws`
 - microphone WAV fallback: `http://<board-ip>:81/audio.wav`
-- GitHub Pages cloud mode over MQTT/WSS without a local PC
+- hybrid cloud mode: MQTT for control/state, relay WSS for video/audio/talkback
 - diagnostics: `/health` and `/pins`
 
 ## Project structure
@@ -19,14 +19,15 @@ PlatformIO firmware for the board marked `ESP32-S3-SPK` / `N16R8` with an
 
 ## Recommended cloud mode
 
-The easiest fully autonomous setup is:
+The recommended architecture is:
 
-1. `ESP32 -> MQTT over TLS -> public broker`
-2. `GitHub Pages -> MQTT over WSS -> public broker`
-3. `browser microphone -> MQTT over WSS -> ESP32 speaker`
+1. `ESP32 -> MQTT over TLS -> private broker` for control/state only
+2. `ESP32 -> WSS relay` for video/audio upstream
+3. `GitHub Pages -> MQTT over WSS` for control/state
+4. `GitHub Pages -> WSS relay` for video/audio/talkback
 
-This avoids the `http://192.168.x.x` microphone limitation in modern browsers
-and does not require a local PC or a VPS.
+This keeps browser microphone support working on HTTPS and avoids pushing live
+media through MQTT.
 
 ## Enable MQTT cloud mode on ESP32
 
@@ -36,15 +37,30 @@ and does not require a local PC or a VPS.
    - `MQTT_SHARED_KEY`
 3. Rebuild and upload.
 
-By default the example uses the official public EMQX broker:
+For a private broker, also fill:
 
-- MQTT over TLS: `broker.emqx.io:8883`
-- MQTT over WSS: `wss://broker.emqx.io:8084/mqtt`
-
-Important: this broker is public. Use a long random shared key and do not send
-private data you need to keep secret.
+- `MQTT_BROKER_HOST`
+- `MQTT_BROKER_PORT`
+- `MQTT_BROKER_WSS_URL`
+- `MQTT_USERNAME`
+- `MQTT_PASSWORD`
 
 The local AP/router web interface still remains available as a fallback.
+
+## Enable relay media mode on ESP32
+
+1. Copy `include/relay_config.example.h` to `include/relay_config.h`.
+2. Fill:
+   - `RELAY_HOST`
+   - `RELAY_DEVICE_ID`
+   - `RELAY_DEVICE_TOKEN`
+3. Rebuild and upload.
+
+In the hybrid mode, the board uses:
+
+- MQTT only for `control` and `state`
+- relay `media` socket for board video/audio
+- relay `speaker` socket for browser talkback
 
 ## Build and upload
 
@@ -141,21 +157,22 @@ This avoids requiring GitHub Actions `workflow` scope on the current token.
 After opening the site:
 
 1. enter `Broker WSS URL`
-2. enter `Device ID`
-3. enter `Shared key`
-4. press `Connect`
+2. enter `Broker username/password`
+3. enter `Relay HTTPS URL`
+4. enter `Viewer token`
+5. enter `Device ID`
+6. enter `Shared key`
+7. press `Connect`
 
 Then:
 
-- `Start A/V` starts board video + board audio
-- `Start talkback` sends phone/PC microphone to the board speaker
-
-The recommended value for `Broker WSS URL` is:
-
-- `wss://broker.emqx.io:8084/mqtt`
+- `Video only` starts only relay video
+- `Live left/right` starts relay audio using the selected board microphone channel
+- `Start talkback` sends phone/PC microphone through relay to the board speaker
 
 The `Device ID` and `Shared key` must match the values in
-`include/mqtt_bridge_config.h` on the board.
+`include/mqtt_bridge_config.h` on the board. The relay `device token` in
+`include/relay_config.h` must match the relay server configuration.
 
 ## Optional router Wi-Fi
 

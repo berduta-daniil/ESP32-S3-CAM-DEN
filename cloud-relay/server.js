@@ -98,8 +98,16 @@ function broadcast(set, data, isBinary = false) {
   }
 }
 
+function deviceOnline(state) {
+  return Boolean(
+    (state.deviceControl && state.deviceControl.readyState === WebSocket.OPEN) ||
+    (state.deviceMedia && state.deviceMedia.readyState === WebSocket.OPEN) ||
+    (state.deviceSpeaker && state.deviceSpeaker.readyState === WebSocket.OPEN)
+  );
+}
+
 function presenceLine(state) {
-  return `presence device=${state.deviceControl && state.deviceMedia ? 1 : 0} viewers=${state.browserControls.size} talkback=${state.browserSpeakers.size}`;
+  return `presence device=${deviceOnline(state) ? 1 : 0} viewers=${state.browserControls.size} talkback=${state.browserSpeakers.size}`;
 }
 
 function refreshPresence(state) {
@@ -143,6 +151,7 @@ const server = http.createServer((req, res) => {
       deviceControl: Boolean(state.deviceControl && state.deviceControl.readyState === WebSocket.OPEN),
       deviceMedia: Boolean(state.deviceMedia && state.deviceMedia.readyState === WebSocket.OPEN),
       deviceSpeaker: Boolean(state.deviceSpeaker && state.deviceSpeaker.readyState === WebSocket.OPEN),
+      deviceOnline: deviceOnline(state),
       viewers: state.browserControls.size,
       talkbackClients: state.browserSpeakers.size,
       lastStateLine: state.lastStateLine,
