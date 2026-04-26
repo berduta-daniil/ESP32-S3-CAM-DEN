@@ -8,6 +8,7 @@ const elements = {
   saveSettings: document.getElementById("save-settings"),
   connect: document.getElementById("connect-btn"),
   disconnect: document.getElementById("disconnect-btn"),
+  notice: document.getElementById("notice"),
   startAv: document.getElementById("start-av"),
   videoOnly: document.getElementById("video-only"),
   audioStop: document.getElementById("audio-stop"),
@@ -51,11 +52,18 @@ const state = {
   talkbackSink: null,
   talkbackGain: 2,
   topics: null,
+  boardPresenceSeen: false,
+  boardPresenceTimer: null,
 };
 
 function log(message) {
   const stamp = new Date().toLocaleTimeString();
   elements.log.textContent = `[${stamp}] ${message}\n${elements.log.textContent}`.trim();
+}
+
+function setNotice(text, kind = "info") {
+  elements.notice.textContent = text;
+  elements.notice.className = `notice notice-${kind}`;
 }
 
 function getSettings() {
@@ -87,6 +95,7 @@ function loadSettings() {
 function requireSettings() {
   const settings = saveSettings();
   if (!settings.brokerUrl || !settings.deviceId || !settings.sharedKey) {
+    setNotice("Fill Broker WSS URL, Device ID and Shared key before connecting.", "error");
     throw new Error("Fill broker URL, device ID and shared key");
   }
   return settings;
@@ -237,7 +246,14 @@ function onMqttMessage(topic, payload) {
 
   if (topic === state.topics.presence) {
     const presence = new TextDecoder().decode(payload).trim();
-    elements.connectionPill.textContent = presence === "1" ? "device online" : "device offline";
+    if (presence === "1") {
+      state.boardPresenceSeen = true;
+      elements.connectionPill.textContent = "device online";
+      setNotice("Broker connected and ESP32 is online.", "info");
+    } else {
+      elements.connectionPill.textContent = "device offline";
+      setNotice("Broker connected, but ESP32 is offline or uses another shared key.", "warn");
+    }
     return;
   }
 }
@@ -248,6 +264,11 @@ async function connectMqtt() {
   disconnectMqtt();
 
   state.topics = buildTopics(settings);
+  state.boardPresenceSeen = false;
+  if (state.boardPresenceTimer) {
+    clearTimeout(state.boardPresenceTimer);
+    state.boardPresenceTimer = null;
+  }
   state.mqtt = mqtt.connect(settings.brokerUrl, {
     clean: true,
     keepalive: 15,
@@ -258,6 +279,7 @@ async function connectMqtt() {
 
   state.mqtt.on("connect", () => {
     elements.connectionPill.textContent = "broker connected";
+    setNotice("Broker connected. Waiting for the ESP32 to appear on MQTT…", "info");
     log(`Connected to ${settings.brokerUrl}`);
     state.mqtt.subscribe([
       state.topics.video,
@@ -266,21 +288,30 @@ async function connectMqtt() {
       state.topics.presence,
     ], { qos: 0 }, (error) => {
       if (error) {
+        setNotice(`Subscribe error: ${error.message}`, "error");
         log(`Subscribe error: ${error.message}`);
         return;
       }
       publishControl();
+      state.boardPresenceTimer = setTimeout(() => {
+        if (!state.boardPresenceSeen) {
+          setNotice("Broker connected, but the board did not appear. Most often this means the ESP32 is not flashed with the MQTT firmware yet, is offline, or uses another shared key.", "warn");
+        }
+      }, 6000);
     });
   });
 
   state.mqtt.on("message", onMqttMessage);
   state.mqtt.on("reconnect", () => {
     elements.connectionPill.textContent = "reconnecting";
+    setNotice("Reconnecting to MQTT broker…", "warn");
   });
   state.mqtt.on("close", () => {
     elements.connectionPill.textContent = "disconnected";
+    setNotice("Disconnected from MQTT broker.", "warn");
   });
   state.mqtt.on("error", (error) => {
+    setNotice(`MQTT error: ${error.message}`, "error");
     log(`MQTT error: ${error.message}`);
   });
 }
@@ -294,8 +325,14 @@ function disconnectMqtt() {
     state.mqtt = null;
   }
   state.topics = null;
+  state.boardPresenceSeen = false;
+  if (state.boardPresenceTimer) {
+    clearTimeout(state.boardPresenceTimer);
+    state.boardPresenceTimer = null;
+  }
   clearImage();
   elements.connectionPill.textContent = "offline";
+  setNotice("Disconnected. Enter the shared key from the ESP32 firmware and connect again.", "info");
 }
 
 function downsampleToInt16(input, inputRate, targetRate, gain = 1) {
@@ -391,6 +428,7 @@ async function startTalkback(gain) {
   state.talkbackProcessor.connect(state.talkbackSink);
   state.talkbackSink.connect(ctx.destination);
   elements.talkbackState.textContent = `active x${gain}`;
+  setNotice("Talkback started. Speak into the browser microphone.", "info");
   log("Talkback started");
 }
 
@@ -437,12 +475,14 @@ function bindEvents() {
   elements.talkbackStart.addEventListener("click", () => {
     startTalkback(2).catch((error) => {
       elements.talkbackState.textContent = "failed";
+      setNotice(error.message, "error");
       log(error.message);
     });
   });
   elements.talkbackLouder.addEventListener("click", () => {
     startTalkback(4).catch((error) => {
       elements.talkbackState.textContent = "failed";
+      setNotice(error.message, "error");
       log(error.message);
     });
   });
