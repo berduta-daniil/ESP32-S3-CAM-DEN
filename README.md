@@ -122,12 +122,14 @@ Example reverse proxy config is in `cloud-relay/Caddyfile.example`.
 
 ## Deploy the GitHub Pages site
 
-The static site is in `github-pages/`.
+The static site source is in `github-pages/`.
 
-You can publish it either:
+Recommended publish mode for this repository:
 
-- with the included GitHub Actions workflow `/.github/workflows/deploy-pages.yml`
-- or by selecting `github-pages/` as the Pages source
+- push the firmware/relay code to `main`
+- publish the site from the separate `gh-pages` branch root
+
+This avoids requiring GitHub Actions `workflow` scope on the current token.
 
 After opening the site:
 
