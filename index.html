@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ESP32 Cloud Viewer</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main>
+    <header class="top">
+      <div>
+        <h1>ESP32 Cloud Viewer</h1>
+        <p class="muted">GitHub Pages UI для відео, аудіо та talkback через cloud relay.</p>
+      </div>
+      <div class="pill" id="connection-pill">offline</div>
+    </header>
+
+    <section class="card">
+      <h2>Підключення</h2>
+      <div class="grid form-grid">
+        <label>
+          <span>Relay URL</span>
+          <input id="relay-url" type="url" placeholder="https://relay.example.com">
+        </label>
+        <label>
+          <span>Device ID</span>
+          <input id="device-id" type="text" placeholder="esp32-s3-cam-den-01">
+        </label>
+        <label>
+          <span>Viewer token</span>
+          <input id="viewer-token" type="password" placeholder="viewer token">
+        </label>
+      </div>
+      <div class="actions">
+        <button id="save-settings" class="secondary">Save settings</button>
+        <button id="connect-btn">Connect</button>
+        <button id="disconnect-btn" class="secondary">Disconnect</button>
+      </div>
+      <p class="muted">Секрет зберігається тільки у браузері через <code>localStorage</code>.</p>
+    </section>
+
+    <section class="viewer card">
+      <div class="viewer-head">
+        <h2>Live</h2>
+        <div id="device-state" class="muted">waiting for relay...</div>
+      </div>
+      <div class="video-frame">
+        <img id="video" alt="Live video stream">
+      </div>
+      <audio id="audio" controls playsinline></audio>
+      <div class="actions">
+        <button id="start-av">Start A/V</button>
+        <button id="video-only" class="secondary">Video only</button>
+        <button id="audio-stop" class="secondary">Stop audio</button>
+        <button id="audio-left" class="secondary">Live left</button>
+        <button id="audio-right" class="secondary">Live right</button>
+        <button id="audio-louder" class="secondary">Louder</button>
+        <button id="audio-quieter" class="secondary">Quieter</button>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="card">
+        <h2>Talkback</h2>
+        <p class="muted">Мікрофон телефона/ПК → динамік плати через WSS.</p>
+        <div class="actions">
+          <button id="talkback-start">Start talkback</button>
+          <button id="talkback-louder" class="secondary">Louder talkback</button>
+          <button id="talkback-stop" class="secondary">Stop talkback</button>
+        </div>
+        <p class="muted" id="talkback-state">idle</p>
+      </section>
+
+      <section class="card">
+        <h2>Стан плати</h2>
+        <dl class="status-list">
+          <div><dt>Camera</dt><dd id="camera-status">-</dd></div>
+          <div><dt>Mic</dt><dd id="mic-status">-</dd></div>
+          <div><dt>Speaker</dt><dd id="speaker-status">-</dd></div>
+          <div><dt>Heap</dt><dd id="heap-status">-</dd></div>
+          <div><dt>STA IP</dt><dd id="sta-status">-</dd></div>
+          <div><dt>AP IP</dt><dd id="ap-status">-</dd></div>
+        </dl>
+      </section>
+    </section>
+
+    <section class="card">
+      <h2>Лог</h2>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>
