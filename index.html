@@ -3,34 +3,42 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>ESP32 MQTT Viewer</title>
+  <title>ESP32 Hybrid Viewer</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
   <main>
     <header class="top">
       <div>
-        <h1>ESP32 MQTT Viewer</h1>
-        <p class="muted">GitHub Pages + secure browser microphone + public MQTT broker.</p>
+        <h1>ESP32 Hybrid Viewer</h1>
+        <p class="muted">MQTT only for control/state, relay WSS for video, audio and talkback.</p>
       </div>
       <div class="pill" id="connection-pill">offline</div>
     </header>
 
     <section class="card">
       <h2>Connection</h2>
-      <div id="notice" class="notice notice-info">Enter the broker endpoint, broker credentials, and the same shared key that is flashed into the ESP32 firmware, then press Connect.</div>
+      <div id="notice" class="notice notice-info">Fill both channels: MQTT broker for control/state and relay HTTPS URL for media/talkback. Device ID and Shared key must match the ESP32 firmware.</div>
       <div class="grid form-grid">
         <label>
           <span>Broker WSS URL</span>
-          <input id="broker-url" type="url" placeholder="wss://broker.emqx.io:8084/mqtt">
+          <input id="broker-url" type="url" placeholder="wss://broker.example.com:8084/mqtt">
         </label>
         <label>
           <span>Broker username</span>
-          <input id="broker-username" type="text" placeholder="esp32-device">
+          <input id="broker-username" type="text" placeholder="web-viewer">
         </label>
         <label>
           <span>Broker password</span>
           <input id="broker-password" type="password" placeholder="EMQX password">
+        </label>
+        <label>
+          <span>Relay HTTPS URL</span>
+          <input id="relay-url" type="url" placeholder="https://relay.example.com">
+        </label>
+        <label>
+          <span>Viewer token</span>
+          <input id="viewer-token" type="password" placeholder="relay viewer token">
         </label>
         <label>
           <span>Device ID</span>
@@ -46,18 +54,18 @@
         <button id="connect-btn">Connect</button>
         <button id="disconnect-btn" class="secondary">Disconnect</button>
       </div>
-      <p class="muted">For a private EMQX Cloud deployment, use the WSS endpoint from your deployment plus its username/password credentials.</p>
+      <p class="muted">Use private EMQX Cloud WSS for control/state and a separate relay HTTPS/WSS host for live media.</p>
     </section>
 
     <section class="viewer card">
       <div class="viewer-head">
         <h2>Live</h2>
-        <div id="device-state" class="muted">waiting for MQTT state...</div>
+        <div id="device-state" class="muted">waiting for control/state...</div>
       </div>
       <div class="video-frame">
         <img id="video" alt="Live video stream">
       </div>
-      <audio id="audio" controls playsinline></audio>
+      <p class="muted">Live audio is played through WebAudio after you press Connect.</p>
       <div class="actions">
         <button id="start-av">Start A/V</button>
         <button id="video-only" class="secondary">Video only</button>
@@ -72,7 +80,7 @@
     <section class="grid">
       <section class="card">
         <h2>Talkback</h2>
-        <p class="muted">Phone/PC microphone → MQTT over WSS → board speaker.</p>
+        <p class="muted">Phone/PC microphone → relay WSS → board speaker.</p>
         <div class="actions">
           <button id="talkback-start">Start talkback</button>
           <button id="talkback-louder" class="secondary">Louder talkback</button>
