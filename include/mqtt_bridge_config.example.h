@@ -21,6 +21,6 @@
 #define MQTT_SHARED_KEY "replace-with-very-long-random-shared-key"
 
 // Cloud stream tuning.
-#define MQTT_VIDEO_INTERVAL_MS 180
+#define MQTT_VIDEO_INTERVAL_MS 450
 #define MQTT_STATE_INTERVAL_MS 10000
 #define MQTT_RECONNECT_INTERVAL_MS 5000

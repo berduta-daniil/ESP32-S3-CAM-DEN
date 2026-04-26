@@ -1,5 +1,8 @@
 const SETTINGS_KEY = "esp32-s3-cam-den-mqtt-settings";
 const AUDIO_SAMPLE_RATE = 16000;
+const AUDIO_LEAD_SECONDS = 0.08;
+const AUDIO_MAX_BUFFER_SECONDS = 0.35;
+const AUDIO_RESET_SECONDS = 0.14;
 
 const elements = {
   brokerUrl: document.getElementById("broker-url"),
@@ -51,6 +54,7 @@ const state = {
   talkbackProcessor: null,
   talkbackSink: null,
   talkbackGain: 2,
+  talkbackRestoreAudio: null,
   topics: null,
   boardPresenceSeen: false,
   boardPresenceTimer: null,
@@ -148,18 +152,22 @@ function clearImage() {
   elements.video.removeAttribute("src");
 }
 
+function resetAudioQueue() {
+  state.nextAudioTime = 0;
+}
+
 function schedulePcm16(arrayBuffer) {
   const ctx = state.audioCtx;
   if (!ctx) {
     return;
   }
 
-  const view = new DataView(arrayBuffer);
   const count = Math.floor(arrayBuffer.byteLength / 2);
   if (count <= 0) {
     return;
   }
 
+  const view = new DataView(arrayBuffer);
   const audioBuffer = ctx.createBuffer(1, count, AUDIO_SAMPLE_RATE);
   const output = audioBuffer.getChannelData(0);
   for (let i = 0; i < count; i++) {
@@ -169,14 +177,15 @@ function schedulePcm16(arrayBuffer) {
   const source = ctx.createBufferSource();
   source.buffer = audioBuffer;
   source.connect(ctx.destination);
+
   const now = ctx.currentTime;
-  if (state.nextAudioTime < now + 0.02) {
-    state.nextAudioTime = now + 0.02;
+  if (state.nextAudioTime < now + AUDIO_LEAD_SECONDS) {
+    state.nextAudioTime = now + AUDIO_LEAD_SECONDS;
   }
   source.start(state.nextAudioTime);
   state.nextAudioTime += count / AUDIO_SAMPLE_RATE;
-  if (state.nextAudioTime > now + 0.25) {
-    state.nextAudioTime = now + 0.08;
+  if (state.nextAudioTime > now + AUDIO_MAX_BUFFER_SECONDS) {
+    state.nextAudioTime = now + AUDIO_RESET_SECONDS;
   }
 }
 
@@ -193,18 +202,34 @@ function parseKvLine(line) {
   return parsed;
 }
 
+function markBoardOnline() {
+  const firstPresence = !state.boardPresenceSeen;
+  state.boardPresenceSeen = true;
+  elements.connectionPill.textContent = "device online";
+  if (state.boardPresenceTimer) {
+    clearTimeout(state.boardPresenceTimer);
+    state.boardPresenceTimer = null;
+  }
+  if (firstPresence) {
+    setNotice("Broker connected and ESP32 is online.", "info");
+  }
+}
+
 function updateDeviceState(line) {
   const parsed = parseKvLine(line);
-  if (parsed._type === "state") {
-    elements.cameraStatus.textContent = parsed.camera || "-";
-    elements.micStatus.textContent = parsed.mic || "-";
-    elements.speakerStatus.textContent = parsed.speaker || "-";
-    elements.heapStatus.textContent = parsed.heap || "-";
-    elements.staStatus.textContent = parsed.sta || "-";
-    elements.apStatus.textContent = parsed.ap || "-";
-    elements.brokerStatus.textContent = parsed.broker || "-";
-    elements.deviceState.textContent = `camera=${parsed.camera || "-"} mic=${parsed.mic || "-"} speaker=${parsed.speaker || "-"}`;
+  if (parsed._type !== "state") {
+    return;
   }
+
+  markBoardOnline();
+  elements.cameraStatus.textContent = parsed.camera || "-";
+  elements.micStatus.textContent = parsed.mic || "-";
+  elements.speakerStatus.textContent = parsed.speaker || "-";
+  elements.heapStatus.textContent = parsed.heap || "-";
+  elements.staStatus.textContent = parsed.sta || "-";
+  elements.apStatus.textContent = parsed.ap || "-";
+  elements.brokerStatus.textContent = parsed.broker || "-";
+  elements.deviceState.textContent = `camera=${parsed.camera || "-"} mic=${parsed.mic || "-"} speaker=${parsed.speaker || "-"}`;
 }
 
 function publishControl() {
@@ -247,14 +272,12 @@ function onMqttMessage(topic, payload) {
   if (topic === state.topics.presence) {
     const presence = new TextDecoder().decode(payload).trim();
     if (presence === "1") {
-      state.boardPresenceSeen = true;
-      elements.connectionPill.textContent = "device online";
-      setNotice("Broker connected and ESP32 is online.", "info");
+      markBoardOnline();
     } else {
+      state.boardPresenceSeen = false;
       elements.connectionPill.textContent = "device offline";
       setNotice("Broker connected, but ESP32 is offline or uses another shared key.", "warn");
     }
-    return;
   }
 }
 
@@ -269,42 +292,42 @@ async function connectMqtt() {
     clearTimeout(state.boardPresenceTimer);
     state.boardPresenceTimer = null;
   }
+
   state.mqtt = mqtt.connect(settings.brokerUrl, {
     clean: true,
-    keepalive: 15,
-    reconnectPeriod: 5000,
-    connectTimeout: 10000,
+    keepalive: 30,
+    reconnectPeriod: 3000,
+    connectTimeout: 15000,
     clientId: `viewer-${settings.deviceId}-${Math.random().toString(16).slice(2, 10)}`,
   });
 
   state.mqtt.on("connect", () => {
     elements.connectionPill.textContent = "broker connected";
-    setNotice("Broker connected. Waiting for the ESP32 to appear on MQTT…", "info");
+    setNotice("Broker connected. Waiting for the ESP32 to appear on MQTT...", "info");
     log(`Connected to ${settings.brokerUrl}`);
-    state.mqtt.subscribe([
-      state.topics.video,
-      state.topics.audio,
-      state.topics.state,
-      state.topics.presence,
-    ], { qos: 0 }, (error) => {
-      if (error) {
-        setNotice(`Subscribe error: ${error.message}`, "error");
-        log(`Subscribe error: ${error.message}`);
-        return;
-      }
-      publishControl();
-      state.boardPresenceTimer = setTimeout(() => {
-        if (!state.boardPresenceSeen) {
-          setNotice("Broker connected, but the board did not appear. Most often this means the ESP32 is not flashed with the MQTT firmware yet, is offline, or uses another shared key.", "warn");
+    state.mqtt.subscribe(
+      [state.topics.video, state.topics.audio, state.topics.state, state.topics.presence],
+      { qos: 0 },
+      (error) => {
+        if (error) {
+          setNotice(`Subscribe error: ${error.message}`, "error");
+          log(`Subscribe error: ${error.message}`);
+          return;
         }
-      }, 6000);
-    });
+        publishControl();
+        state.boardPresenceTimer = setTimeout(() => {
+          if (!state.boardPresenceSeen) {
+            setNotice("Broker connected, but the board did not appear. Most often this means the ESP32 is offline, uses another shared key, or is not on the MQTT firmware.", "warn");
+          }
+        }, 6000);
+      }
+    );
   });
 
   state.mqtt.on("message", onMqttMessage);
   state.mqtt.on("reconnect", () => {
     elements.connectionPill.textContent = "reconnecting";
-    setNotice("Reconnecting to MQTT broker…", "warn");
+    setNotice("Reconnecting to MQTT broker...", "warn");
   });
   state.mqtt.on("close", () => {
     elements.connectionPill.textContent = "disconnected";
@@ -316,7 +339,29 @@ async function connectMqtt() {
   });
 }
 
+function stopTalkbackInternals() {
+  if (state.talkbackProcessor) {
+    state.talkbackProcessor.disconnect();
+    state.talkbackProcessor.onaudioprocess = null;
+    state.talkbackProcessor = null;
+  }
+  if (state.talkbackSource) {
+    state.talkbackSource.disconnect();
+    state.talkbackSource = null;
+  }
+  if (state.talkbackSink) {
+    state.talkbackSink.disconnect();
+    state.talkbackSink = null;
+  }
+  if (state.talkbackStream) {
+    state.talkbackStream.getTracks().forEach((track) => track.stop());
+    state.talkbackStream = null;
+  }
+}
+
 function disconnectMqtt() {
+  stopTalkbackInternals();
+  state.talkbackRestoreAudio = null;
   if (state.mqtt) {
     try {
       state.mqtt.end(true);
@@ -331,7 +376,9 @@ function disconnectMqtt() {
     state.boardPresenceTimer = null;
   }
   clearImage();
+  resetAudioQueue();
   elements.connectionPill.textContent = "offline";
+  elements.talkbackState.textContent = "idle";
   setNotice("Disconnected. Enter the shared key from the ESP32 firmware and connect again.", "info");
 }
 
@@ -362,29 +409,16 @@ function downsampleToInt16(input, inputRate, targetRate, gain = 1) {
   return pcm;
 }
 
-function stopTalkbackInternals() {
-  if (state.talkbackProcessor) {
-    state.talkbackProcessor.disconnect();
-    state.talkbackProcessor.onaudioprocess = null;
-    state.talkbackProcessor = null;
-  }
-  if (state.talkbackSource) {
-    state.talkbackSource.disconnect();
-    state.talkbackSource = null;
-  }
-  if (state.talkbackSink) {
-    state.talkbackSink.disconnect();
-    state.talkbackSink = null;
-  }
-  if (state.talkbackStream) {
-    state.talkbackStream.getTracks().forEach((track) => track.stop());
-    state.talkbackStream = null;
-  }
-}
-
 function stopTalkback() {
+  const restoreAudio = state.talkbackRestoreAudio;
   stopTalkbackInternals();
+  state.talkbackRestoreAudio = null;
+  if (restoreAudio !== null && state.subscription.audio !== restoreAudio) {
+    state.subscription.audio = restoreAudio;
+    publishControl();
+  }
   elements.talkbackState.textContent = "idle";
+  setNotice("Talkback stopped.", "info");
 }
 
 async function startTalkback(gain) {
@@ -393,22 +427,31 @@ async function startTalkback(gain) {
   }
 
   const ctx = await unlockAudio();
-  stopTalkback();
+  const restoreAudio = state.talkbackRestoreAudio ?? state.subscription.audio;
+  stopTalkbackInternals();
+  state.talkbackRestoreAudio = restoreAudio;
+
+  if (state.subscription.audio) {
+    state.subscription.audio = false;
+    publishControl();
+  }
+  resetAudioQueue();
 
   state.talkbackStream = await navigator.mediaDevices.getUserMedia({
     audio: {
       channelCount: 1,
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
     },
   });
 
   state.talkbackGain = gain;
   state.talkbackSource = ctx.createMediaStreamSource(state.talkbackStream);
-  state.talkbackProcessor = ctx.createScriptProcessor(2048, 1, 1);
+  state.talkbackProcessor = ctx.createScriptProcessor(4096, 1, 1);
   state.talkbackSink = ctx.createGain();
   state.talkbackSink.gain.value = 0;
+
   state.talkbackProcessor.onaudioprocess = (event) => {
     if (!state.mqtt || !state.mqtt.connected || !state.topics) {
       return;
@@ -424,48 +467,63 @@ async function startTalkback(gain) {
       state.mqtt.publish(state.topics.speaker, bytes, { qos: 0, retain: false });
     }
   };
+
   state.talkbackSource.connect(state.talkbackProcessor);
   state.talkbackProcessor.connect(state.talkbackSink);
   state.talkbackSink.connect(ctx.destination);
   elements.talkbackState.textContent = `active x${gain}`;
-  setNotice("Talkback started. Speak into the browser microphone.", "info");
+  setNotice("Talkback started. Board audio is temporarily paused to keep the channel stable.", "info");
   log("Talkback started");
 }
 
 function bindEvents() {
   elements.saveSettings.addEventListener("click", saveSettings);
-  elements.connect.addEventListener("click", () => connectMqtt().catch((error) => log(error.message)));
+  elements.connect.addEventListener("click", () => connectMqtt().catch((error) => {
+    setNotice(error.message, "error");
+    log(error.message);
+  }));
   elements.disconnect.addEventListener("click", disconnectMqtt);
 
   elements.startAv.addEventListener("click", () => {
     state.subscription.video = true;
     state.subscription.audio = true;
+    resetAudioQueue();
     publishControl();
   });
+
   elements.videoOnly.addEventListener("click", () => {
     state.subscription.video = true;
     state.subscription.audio = false;
+    resetAudioQueue();
     publishControl();
   });
+
   elements.audioStop.addEventListener("click", () => {
     state.subscription.audio = false;
+    resetAudioQueue();
     publishControl();
   });
+
   elements.audioLeft.addEventListener("click", () => {
     state.subscription.audio = true;
     state.subscription.channel = "left";
+    resetAudioQueue();
     publishControl();
   });
+
   elements.audioRight.addEventListener("click", () => {
     state.subscription.audio = true;
     state.subscription.channel = "right";
+    resetAudioQueue();
     publishControl();
   });
+
   elements.audioLouder.addEventListener("click", () => {
     state.subscription.audio = true;
-    state.subscription.gain = Math.min(12, state.subscription.gain + 2);
+    state.subscription.gain = Math.min(8, state.subscription.gain + 1);
     publishControl();
   });
+
   elements.audioQuieter.addEventListener("click", () => {
     state.subscription.audio = true;
     state.subscription.gain = Math.max(1, state.subscription.gain - 1);
@@ -479,6 +537,7 @@ function bindEvents() {
       log(error.message);
     });
   });
+
   elements.talkbackLouder.addEventListener("click", () => {
     startTalkback(4).catch((error) => {
       elements.talkbackState.textContent = "failed";
@@ -486,6 +545,7 @@ function bindEvents() {
       log(error.message);
     });
   });
+
   elements.talkbackStop.addEventListener("click", stopTalkback);
 }
 

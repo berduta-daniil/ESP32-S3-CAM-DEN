@@ -126,7 +126,7 @@
 #endif
 
 #ifndef MQTT_VIDEO_INTERVAL_MS
-#define MQTT_VIDEO_INTERVAL_MS 180
+#define MQTT_VIDEO_INTERVAL_MS 450
 #endif
 
 #ifndef MQTT_STATE_INTERVAL_MS
@@ -146,6 +146,8 @@ constexpr bool KEEP_CAMERA_INITIALIZED = false;
 constexpr bool AUTO_START_AV_ON_PAGE_LOAD = true;
 constexpr framesize_t CAMERA_FRAME_SIZE = FRAMESIZE_QVGA;
 constexpr int CAMERA_JPEG_QUALITY = 14;
+constexpr framesize_t MQTT_CAMERA_FRAME_SIZE = FRAMESIZE_QQVGA;
+constexpr int MQTT_CAMERA_JPEG_QUALITY = 24;
 constexpr size_t CAMERA_FB_COUNT = 1;
 constexpr uint16_t STREAM_DELAY_MS = 80;
 constexpr uint32_t CAMERA_IDLE_STOP_MS = 30000;
@@ -221,6 +223,8 @@ String mqttAudioTopic;
 String mqttSpeakerTopic;
 String mqttStateTopic;
 String mqttPresenceTopic;
+framesize_t activeCameraFrameSize = CAMERA_FRAME_SIZE;
+int activeCameraJpegQuality = CAMERA_JPEG_QUALITY;
 
 static void stopCamera();
 static void relayControlSocketEvent(WStype_t type, uint8_t *payload, size_t length);
@@ -234,6 +238,7 @@ static void mqttMediaTask(void *parameter);
 static bool connectMqttBridge();
 static void startMqttBridge();
 static void mqttSendStateLine();
+static void applyCameraSensorProfile(framesize_t frameSize, int jpegQuality, bool fullTuning = false);
 
 static bool relayConfigured() {
   return RELAY_ENABLED &&
@@ -1406,6 +1411,30 @@ static camera_config_t makeCameraConfig() {
   return config;
 }
 
+static void applyCameraSensorProfile(framesize_t frameSize, int jpegQuality, bool fullTuning) {
+  sensor_t *sensor = esp_camera_sensor_get();
+  if (sensor == nullptr) {
+    return;
+  }
+
+  if (fullTuning || activeCameraFrameSize != frameSize) {
+    sensor->set_framesize(sensor, frameSize);
+    activeCameraFrameSize = frameSize;
+  }
+  if (fullTuning || activeCameraJpegQuality != jpegQuality) {
+    sensor->set_quality(sensor, jpegQuality);
+    activeCameraJpegQuality = jpegQuality;
+  }
+  if (fullTuning) {
+    sensor->set_brightness(sensor, 0);
+    sensor->set_contrast(sensor, 0);
+    sensor->set_saturation(sensor, 0);
+    sensor->set_gainceiling(sensor, GAINCEILING_8X);
+    sensor->set_vflip(sensor, 0);
+    sensor->set_hmirror(sensor, 0);
+  }
+}
+
 static bool initCamera() {
   if (cameraReady) {
     lastCameraUseMs = millis();
@@ -1447,17 +1476,7 @@ static bool initCamera() {
     return false;
   }
 
-  sensor_t *sensor = esp_camera_sensor_get();
-  if (sensor != nullptr) {
-    sensor->set_framesize(sensor, CAMERA_FRAME_SIZE);
-    sensor->set_quality(sensor, CAMERA_JPEG_QUALITY);
-    sensor->set_brightness(sensor, 0);
-    sensor->set_contrast(sensor, 0);
-    sensor->set_saturation(sensor, 0);
-    sensor->set_gainceiling(sensor, GAINCEILING_8X);
-    sensor->set_vflip(sensor, 0);
-    sensor->set_hmirror(sensor, 0);
-  }
+  applyCameraSensorProfile(CAMERA_FRAME_SIZE, CAMERA_JPEG_QUALITY, true);
 
   cameraReady = true;
   cameraStatus = "ok";
@@ -1756,6 +1775,7 @@ static void handleCapture() {
     server.send(503, "text/plain; charset=utf-8", cameraStatus);
     return;
   }
+  applyCameraSensorProfile(CAMERA_FRAME_SIZE, CAMERA_JPEG_QUALITY, false);
 
   camera_fb_t *fb = esp_camera_fb_get();
   lastCameraUseMs = millis();
@@ -1797,6 +1817,7 @@ static void handleStream() {
     server.send(503, "text/plain; charset=utf-8", cameraStatus);
     return;
   }
+  applyCameraSensorProfile(CAMERA_FRAME_SIZE, CAMERA_JPEG_QUALITY, false);
 
   WiFiClient client = server.client();
   client.setNoDelay(true);
@@ -2486,8 +2507,8 @@ static bool connectMqttBridge() {
 #endif
   mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
   mqttClient.setCallback(mqttCallback);
-  mqttClient.setKeepAlive(15);
-  mqttClient.setSocketTimeout(4);
+  mqttClient.setKeepAlive(30);
+  mqttClient.setSocketTimeout(8);
   mqttClient.setBufferSize(32768);
 
   uint64_t chipId = ESP.getEfuseMac();
@@ -2549,8 +2570,10 @@ static void mqttMediaTask(void *parameter) {
     }
 
     unsigned long now = millis();
-    if (mqttBridgeConfigured() && mqttConnected && mqttVideoRequested && now - lastVideoAt >= MQTT_VIDEO_INTERVAL_MS) {
+    uint32_t effectiveVideoInterval = mqttAudioRequested ? max<uint32_t>(MQTT_VIDEO_INTERVAL_MS, 800) : MQTT_VIDEO_INTERVAL_MS;
+    if (mqttBridgeConfigured() && mqttConnected && mqttVideoRequested && now - lastVideoAt >= effectiveVideoInterval) {
       if (initCamera()) {
+        applyCameraSensorProfile(MQTT_CAMERA_FRAME_SIZE, MQTT_CAMERA_JPEG_QUALITY, false);
         camera_fb_t *fb = esp_camera_fb_get();
         lastCameraUseMs = millis();
         if (fb != nullptr) {
