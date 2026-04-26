@@ -18,11 +18,19 @@
 
     <section class="card">
       <h2>Connection</h2>
-      <div id="notice" class="notice notice-info">Enter the same shared key that is flashed into the ESP32 firmware, then press Connect.</div>
+      <div id="notice" class="notice notice-info">Enter the broker endpoint, broker credentials, and the same shared key that is flashed into the ESP32 firmware, then press Connect.</div>
       <div class="grid form-grid">
         <label>
           <span>Broker WSS URL</span>
           <input id="broker-url" type="url" placeholder="wss://broker.emqx.io:8084/mqtt">
+        </label>
+        <label>
+          <span>Broker username</span>
+          <input id="broker-username" type="text" placeholder="esp32-device">
+        </label>
+        <label>
+          <span>Broker password</span>
+          <input id="broker-password" type="password" placeholder="EMQX password">
         </label>
         <label>
           <span>Device ID</span>
@@ -38,7 +46,7 @@
         <button id="connect-btn">Connect</button>
         <button id="disconnect-btn" class="secondary">Disconnect</button>
       </div>
-      <p class="muted">This broker is public. Use a long random shared key and do not send private data you cannot expose.</p>
+      <p class="muted">For a private EMQX Cloud deployment, use the WSS endpoint from your deployment plus its username/password credentials.</p>
     </section>
 
     <section class="viewer card">

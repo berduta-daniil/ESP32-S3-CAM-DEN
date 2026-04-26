@@ -6,6 +6,8 @@ const AUDIO_RESET_SECONDS = 0.14;
 
 const elements = {
   brokerUrl: document.getElementById("broker-url"),
+  brokerUsername: document.getElementById("broker-username"),
+  brokerPassword: document.getElementById("broker-password"),
   deviceId: document.getElementById("device-id"),
   sharedKey: document.getElementById("shared-key"),
   saveSettings: document.getElementById("save-settings"),
@@ -81,6 +83,8 @@ function getSettings() {
 function saveSettings() {
   const settings = {
     brokerUrl: elements.brokerUrl.value.trim(),
+    brokerUsername: elements.brokerUsername.value.trim(),
+    brokerPassword: elements.brokerPassword.value,
     deviceId: elements.deviceId.value.trim(),
     sharedKey: elements.sharedKey.value.trim(),
   };
@@ -92,6 +96,8 @@ function saveSettings() {
 function loadSettings() {
   const settings = getSettings();
   elements.brokerUrl.value = settings.brokerUrl || "wss://broker.emqx.io:8084/mqtt";
+  elements.brokerUsername.value = settings.brokerUsername || "";
+  elements.brokerPassword.value = settings.brokerPassword || "";
   elements.deviceId.value = settings.deviceId || "esp32-s3-cam-den-01";
   elements.sharedKey.value = settings.sharedKey || "";
 }
@@ -299,6 +305,8 @@ async function connectMqtt() {
     reconnectPeriod: 3000,
     connectTimeout: 15000,
     clientId: `viewer-${settings.deviceId}-${Math.random().toString(16).slice(2, 10)}`,
+    username: settings.brokerUsername || undefined,
+    password: settings.brokerPassword || undefined,
   });
 
   state.mqtt.on("connect", () => {
