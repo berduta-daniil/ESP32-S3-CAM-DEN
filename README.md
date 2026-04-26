@@ -5,8 +5,11 @@
 
 ## Як публікувати
 
-- або через GitHub Pages workflow з `/.github/workflows/deploy-pages.yml`
-- або вручну, вказавши папку `github-pages/` як source
+Рекомендовано викладати цю папку в окрему гілку `gh-pages` і в GitHub Pages
+вказувати source:
+
+- branch: `gh-pages`
+- folder: `/ (root)`
 
 Після відкриття сторінки:
 
