@@ -6,13 +6,15 @@
 #define MQTT_BRIDGE_ENABLED 1
 
 // Official public EMQX broker:
-// - MQTT over TLS: broker.emqx.io:8883
+// - MQTT over TCP: broker.emqx.io:1883
 // - MQTT over Secure WebSocket: wss://broker.emqx.io:8084/mqtt
 #define MQTT_BROKER_HOST "broker.emqx.io"
-#define MQTT_BROKER_PORT 8883
+#define MQTT_BROKER_PORT 1883
 #define MQTT_BROKER_WSS_URL "wss://broker.emqx.io:8084/mqtt"
+#define MQTT_USE_TLS 0
 
-// For maximum compatibility on ESP32 we use TLS without CA pinning.
+// For maximum compatibility on ESP32 the board uses plain MQTT TCP.
+// The browser still uses secure WSS on GitHub Pages.
 #define MQTT_ALLOW_INSECURE_TLS 1
 
 // Use a long random secret because this broker is public.

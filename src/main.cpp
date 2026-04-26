@@ -106,11 +106,15 @@
 #endif
 
 #ifndef MQTT_BROKER_PORT
-#define MQTT_BROKER_PORT 8883
+#define MQTT_BROKER_PORT 1883
 #endif
 
 #ifndef MQTT_BROKER_WSS_URL
 #define MQTT_BROKER_WSS_URL "wss://broker.emqx.io:8084/mqtt"
+#endif
+
+#ifndef MQTT_USE_TLS
+#define MQTT_USE_TLS 0
 #endif
 
 #ifndef MQTT_ALLOW_INSECURE_TLS
@@ -170,7 +174,11 @@ WiFiServer speakerInputServer(SPEAKER_INPUT_PORT);
 WebSocketsClient relayControlSocket;
 WebSocketsClient relayMediaSocket;
 WebSocketsClient relaySpeakerSocket;
+#if MQTT_USE_TLS
 WiFiClientSecure mqttTransport;
+#else
+WiFiClient mqttTransport;
+#endif
 PubSubClient mqttClient(mqttTransport);
 
 i2s_chan_handle_t microphoneRxChannel = nullptr;
@@ -239,6 +247,7 @@ static bool connectMqttBridge();
 static void startMqttBridge();
 static void mqttSendStateLine();
 static void applyCameraSensorProfile(framesize_t frameSize, int jpegQuality, bool fullTuning = false);
+static void markMqttDisconnected(const char *status);
 
 static bool relayConfigured() {
   return RELAY_ENABLED &&
@@ -2383,6 +2392,9 @@ static bool mqttPublishText(const String &topic, const String &payload, bool ret
     return false;
   }
   bool ok = mqttClient.publish(topic.c_str(), payload.c_str(), retained);
+  if (!ok) {
+    markMqttDisconnected("mqtt_publish_failed");
+  }
   releaseMqttClient();
   return ok;
 }
@@ -2402,11 +2414,17 @@ static bool mqttPublishBinary(const String &topic, const uint8_t *payload, size_
   if (ok) {
     ok = mqttClient.endPublish();
   } else {
-    mqttClient.disconnect();
-    mqttConnected = false;
+    markMqttDisconnected("mqtt_publish_failed");
   }
   releaseMqttClient();
   return ok;
+}
+
+static void markMqttDisconnected(const char *status) {
+  mqttClient.disconnect();
+  mqttTransport.stop();
+  mqttConnected = false;
+  mqttStatus = status;
 }
 
 static void mqttSendStateLine() {
@@ -2502,7 +2520,7 @@ static bool connectMqttBridge() {
   }
 
   mqttTransport.stop();
-#if MQTT_ALLOW_INSECURE_TLS
+#if MQTT_USE_TLS && MQTT_ALLOW_INSECURE_TLS
   mqttTransport.setInsecure();
 #endif
   mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
@@ -2516,6 +2534,7 @@ static bool connectMqttBridge() {
   bool connected = mqttClient.connect(clientId.c_str(), mqttPresenceTopic.c_str(), 0, true, "0");
   if (!connected) {
     mqttStatus = "mqtt_connect_failed";
+    mqttTransport.stop();
     releaseMqttClient();
     return false;
   }
@@ -2775,11 +2794,14 @@ void loop() {
   }
 
   if (mqttBridgeConfigured()) {
-    if (!mqttClient.connected()) {
-      mqttConnected = false;
+    if (!mqttConnected) {
       connectMqttBridge();
     } else if (claimMqttClient(20)) {
-      mqttClient.loop();
+      bool socketConnected = mqttClient.connected();
+      bool loopOk = socketConnected ? mqttClient.loop() : false;
+      if (!socketConnected || !loopOk) {
+        markMqttDisconnected("mqtt_disconnected");
+      }
       releaseMqttClient();
     }
   }
