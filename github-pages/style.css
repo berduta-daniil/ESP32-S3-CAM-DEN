@@ -64,6 +64,28 @@ main {
   color: var(--muted);
 }
 
+.notice {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+
+.notice-info {
+  background: rgba(47, 129, 247, 0.12);
+  color: #c9e3ff;
+}
+
+.notice-warn {
+  background: rgba(210, 153, 34, 0.12);
+  color: #ffd98a;
+}
+
+.notice-error {
+  background: rgba(248, 81, 73, 0.12);
+  color: #ffb3ad;
+}
+
 .form-grid {
   gap: 16px;
 }
