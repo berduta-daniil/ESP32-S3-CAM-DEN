@@ -54,7 +54,7 @@ const state = {
   talkbackProcessor: null,
   talkbackSink: null,
   talkbackGain: 2,
-  talkbackRestoreAudio: null,
+  talkbackRestoreSubscription: null,
   topics: null,
   boardPresenceSeen: false,
   boardPresenceTimer: null,
@@ -361,7 +361,7 @@ function stopTalkbackInternals() {
 
 function disconnectMqtt() {
   stopTalkbackInternals();
-  state.talkbackRestoreAudio = null;
+  state.talkbackRestoreSubscription = null;
   if (state.mqtt) {
     try {
       state.mqtt.end(true);
@@ -410,11 +410,16 @@ function downsampleToInt16(input, inputRate, targetRate, gain = 1) {
 }
 
 function stopTalkback() {
-  const restoreAudio = state.talkbackRestoreAudio;
+  const restoreSubscription = state.talkbackRestoreSubscription;
   stopTalkbackInternals();
-  state.talkbackRestoreAudio = null;
-  if (restoreAudio !== null && state.subscription.audio !== restoreAudio) {
-    state.subscription.audio = restoreAudio;
+  state.talkbackRestoreSubscription = null;
+  if (restoreSubscription) {
+    state.subscription.video = restoreSubscription.video;
+    state.subscription.audio = restoreSubscription.audio;
+    state.subscription.channel = restoreSubscription.channel;
+    state.subscription.gain = restoreSubscription.gain;
+    state.subscription.shift = restoreSubscription.shift;
+    resetAudioQueue();
     publishControl();
   }
   elements.talkbackState.textContent = "idle";
@@ -427,14 +432,12 @@ async function startTalkback(gain) {
   }
 
   const ctx = await unlockAudio();
-  const restoreAudio = state.talkbackRestoreAudio ?? state.subscription.audio;
+  const restoreSubscription = state.talkbackRestoreSubscription || { ...state.subscription };
   stopTalkbackInternals();
-  state.talkbackRestoreAudio = restoreAudio;
-
-  if (state.subscription.audio) {
-    state.subscription.audio = false;
-    publishControl();
-  }
+  state.talkbackRestoreSubscription = restoreSubscription;
+  state.subscription.video = false;
+  state.subscription.audio = false;
+  publishControl();
   resetAudioQueue();
 
   state.talkbackStream = await navigator.mediaDevices.getUserMedia({
@@ -448,7 +451,7 @@ async function startTalkback(gain) {
 
   state.talkbackGain = gain;
   state.talkbackSource = ctx.createMediaStreamSource(state.talkbackStream);
-  state.talkbackProcessor = ctx.createScriptProcessor(4096, 1, 1);
+  state.talkbackProcessor = ctx.createScriptProcessor(2048, 1, 1);
   state.talkbackSink = ctx.createGain();
   state.talkbackSink.gain.value = 0;
 

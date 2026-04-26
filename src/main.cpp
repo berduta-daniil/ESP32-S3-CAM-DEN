@@ -150,8 +150,10 @@ constexpr bool KEEP_CAMERA_INITIALIZED = false;
 constexpr bool AUTO_START_AV_ON_PAGE_LOAD = true;
 constexpr framesize_t CAMERA_FRAME_SIZE = FRAMESIZE_QVGA;
 constexpr int CAMERA_JPEG_QUALITY = 14;
-constexpr framesize_t MQTT_CAMERA_FRAME_SIZE = FRAMESIZE_QQVGA;
-constexpr int MQTT_CAMERA_JPEG_QUALITY = 24;
+constexpr framesize_t MQTT_AV_CAMERA_FRAME_SIZE = FRAMESIZE_QQVGA;
+constexpr int MQTT_AV_CAMERA_JPEG_QUALITY = 24;
+constexpr framesize_t MQTT_VIDEO_ONLY_CAMERA_FRAME_SIZE = FRAMESIZE_QVGA;
+constexpr int MQTT_VIDEO_ONLY_CAMERA_JPEG_QUALITY = 18;
 constexpr size_t CAMERA_FB_COUNT = 1;
 constexpr uint16_t STREAM_DELAY_MS = 80;
 constexpr uint32_t CAMERA_IDLE_STOP_MS = 30000;
@@ -164,7 +166,7 @@ constexpr uint32_t SPEAKER_SAMPLE_RATE = 16000;
 constexpr size_t SPEAKER_FRAMES = 256;
 constexpr i2s_port_t SPEAKER_I2S_PORT = I2S_NUM_1;
 constexpr int SPEAKER_DEFAULT_AMPLITUDE = 2500;
-constexpr size_t MQTT_AUDIO_FRAMES = 1024;
+constexpr size_t MQTT_AUDIO_FRAMES = 512;
 constexpr uint8_t RELAY_PACKET_VIDEO_JPEG = 1;
 constexpr uint8_t RELAY_PACKET_AUDIO_PCM = 2;
 
@@ -248,6 +250,7 @@ static void startMqttBridge();
 static void mqttSendStateLine();
 static void applyCameraSensorProfile(framesize_t frameSize, int jpegQuality, bool fullTuning = false);
 static void markMqttDisconnected(const char *status);
+static bool mqttTalkbackActive();
 
 static bool relayConfigured() {
   return RELAY_ENABLED &&
@@ -2427,6 +2430,12 @@ static void markMqttDisconnected(const char *status) {
   mqttStatus = status;
 }
 
+static bool mqttTalkbackActive() {
+  return speakerStatus == "mqtt_talkback" &&
+         lastMqttSpeakerChunkMs > 0 &&
+         millis() - lastMqttSpeakerChunkMs < 1500;
+}
+
 static void mqttSendStateLine() {
   if (!mqttBridgeConfigured() || !mqttConnected) {
     return;
@@ -2561,8 +2570,9 @@ static void mqttMediaTask(void *parameter) {
 
   for (;;) {
     bool didWork = false;
+    bool talkbackActive = mqttTalkbackActive();
 
-    if (mqttBridgeConfigured() && mqttConnected && mqttAudioRequested) {
+    if (mqttBridgeConfigured() && mqttConnected && mqttAudioRequested && !talkbackActive) {
       if (microphoneReady || initMicrophone()) {
         size_t bytesRead = 0;
         esp_err_t err = readMicrophoneSamples(rawSamples, MQTT_AUDIO_FRAMES, &bytesRead, 120);
@@ -2589,10 +2599,14 @@ static void mqttMediaTask(void *parameter) {
     }
 
     unsigned long now = millis();
-    uint32_t effectiveVideoInterval = mqttAudioRequested ? max<uint32_t>(MQTT_VIDEO_INTERVAL_MS, 800) : MQTT_VIDEO_INTERVAL_MS;
-    if (mqttBridgeConfigured() && mqttConnected && mqttVideoRequested && now - lastVideoAt >= effectiveVideoInterval) {
+    uint32_t effectiveVideoInterval = mqttAudioRequested ? max<uint32_t>(MQTT_VIDEO_INTERVAL_MS, 900) : MQTT_VIDEO_INTERVAL_MS;
+    if (mqttBridgeConfigured() && mqttConnected && mqttVideoRequested && !talkbackActive && now - lastVideoAt >= effectiveVideoInterval) {
       if (initCamera()) {
-        applyCameraSensorProfile(MQTT_CAMERA_FRAME_SIZE, MQTT_CAMERA_JPEG_QUALITY, false);
+        if (mqttAudioRequested) {
+          applyCameraSensorProfile(MQTT_AV_CAMERA_FRAME_SIZE, MQTT_AV_CAMERA_JPEG_QUALITY, false);
+        } else {
+          applyCameraSensorProfile(MQTT_VIDEO_ONLY_CAMERA_FRAME_SIZE, MQTT_VIDEO_ONLY_CAMERA_JPEG_QUALITY, false);
+        }
         camera_fb_t *fb = esp_camera_fb_get();
         lastCameraUseMs = millis();
         if (fb != nullptr) {

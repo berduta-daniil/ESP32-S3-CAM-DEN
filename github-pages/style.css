@@ -133,8 +133,11 @@ button.secondary {
   overflow: hidden;
 }
 
-img {
+#video {
+  width: 100%;
   max-width: 100%;
+  min-height: 340px;
+  object-fit: contain;
   display: block;
 }
 
