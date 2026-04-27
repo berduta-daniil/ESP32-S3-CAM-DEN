@@ -180,6 +180,7 @@ server.on("upgrade", (req, socket, head) => {
   try {
     url = new URL(req.url, `http://${req.headers.host}`);
   } catch {
+    console.log(`[upgrade] invalid url: ${req.url || "<empty>"}`);
     socket.destroy();
     return;
   }
@@ -188,6 +189,7 @@ server.on("upgrade", (req, socket, head) => {
   const isDevice = path.startsWith("/ws/device/");
   const auth = isDevice ? authenticateDevice(url) : authenticateViewer(url);
   if (!auth) {
+    console.log(`[upgrade] unauthorized ${isDevice ? "device" : "viewer"} path=${path} query=${url.search}`);
     socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
     socket.destroy();
     return;
@@ -195,6 +197,7 @@ server.on("upgrade", (req, socket, head) => {
 
   const kind = path.split("/").pop();
   if (!["control", "media", "speaker"].includes(kind)) {
+    console.log(`[upgrade] unknown kind path=${path}`);
     socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
     socket.destroy();
     return;

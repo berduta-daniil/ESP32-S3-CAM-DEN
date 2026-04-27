@@ -379,8 +379,15 @@ static String relayUrlEncode(const String &value) {
 
 static String relayBuildPath(const char *channel) {
   String path = RELAY_BASE_PATH;
-  if (path.length() > 0 && !path.endsWith("/")) {
-    path += "/";
+  if (path.isEmpty()) {
+    path = "/";
+  } else {
+    if (!path.startsWith("/")) {
+      path = "/" + path;
+    }
+    if (!path.endsWith("/")) {
+      path += "/";
+    }
   }
   path += "ws/device/";
   path += channel;
@@ -2209,6 +2216,13 @@ static void relayControlSocketEvent(WStype_t type, uint8_t *payload, size_t leng
     }
     case WStype_ERROR:
       relayStatus = "cloud_control_error";
+      if (payload != nullptr && length > 0) {
+        Serial.print("Relay control error: ");
+        Serial.write(payload, length);
+        Serial.println();
+      } else {
+        Serial.println("Relay control error");
+      }
       break;
     default:
       break;
@@ -2216,8 +2230,6 @@ static void relayControlSocketEvent(WStype_t type, uint8_t *payload, size_t leng
 }
 
 static void relayMediaSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
-  (void)payload;
-  (void)length;
   switch (type) {
     case WStype_CONNECTED:
       relayMediaConnected = true;
@@ -2231,6 +2243,13 @@ static void relayMediaSocketEvent(WStype_t type, uint8_t *payload, size_t length
       break;
     case WStype_ERROR:
       relayStatus = "cloud_media_error";
+      if (payload != nullptr && length > 0) {
+        Serial.print("Relay media error: ");
+        Serial.write(payload, length);
+        Serial.println();
+      } else {
+        Serial.println("Relay media error");
+      }
       break;
     default:
       break;
@@ -2264,6 +2283,13 @@ static void relaySpeakerSocketEvent(WStype_t type, uint8_t *payload, size_t leng
       break;
     case WStype_ERROR:
       relayStatus = "cloud_speaker_error";
+      if (payload != nullptr && length > 0) {
+        Serial.print("Relay speaker error: ");
+        Serial.write(payload, length);
+        Serial.println();
+      } else {
+        Serial.println("Relay speaker error");
+      }
       break;
     default:
       break;
@@ -2378,13 +2404,6 @@ static void startRelayClients() {
     if (!hybridCloudMode()) {
       relayControlSocket.beginSSL(RELAY_HOST, RELAY_PORT, relayControlPath.c_str());
     }
-#if RELAY_ALLOW_INSECURE_TLS
-    relayMediaSocket.setInsecure();
-    relaySpeakerSocket.setInsecure();
-    if (!hybridCloudMode()) {
-      relayControlSocket.setInsecure();
-    }
-#endif
   } else {
     relayMediaSocket.begin(RELAY_HOST, RELAY_PORT, relayMediaPath.c_str());
     relaySpeakerSocket.begin(RELAY_HOST, RELAY_PORT, relaySpeakerPath.c_str());
