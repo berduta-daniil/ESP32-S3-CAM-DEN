@@ -1,1 +1,45 @@
-<!doctype html><html lang="uk"><head>  <meta charset="utf-8">  <meta name="viewport" content="width=device-width,initial-scale=1">  <title>ESP32 Camera Viewer</title>  <link rel="stylesheet" href="./style.css"></head><body>  <main>    <header class="top">      <div>        <h1>ESP32 Camera Viewer</h1>        <p class="muted">Відео і звук з плати запускаються автоматично.</p>      </div>      <div class="pill" id="connection-pill">loading</div>    </header>    <section class="card viewer">      <div id="notice" class="notice notice-info">        Сторінка підключається автоматично. Якщо браузер блокує звук, торкніться сторінки один раз.      </div>      <div class="viewer-head">        <h2>Live</h2>        <div id="device-state" class="muted">очікування підключення...</div>      </div>      <div class="video-frame">        <img id="video" alt="Live video stream">      </div>    </section>    <section class="card talkback-card">      <h2>Talkback</h2>      <p class="muted">Мікрофон телефона/ПК > динамік плати.</p>      <div class="actions">        <button id="talkback-toggle">Увімкнути мікрофон</button>      </div>      <p class="muted" id="talkback-state">вимкнено</p>    </section>  </main>  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>  <script src="./app.js"></script></body></html>
+п»ї<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ESP32 Camera Viewer</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main>
+    <header class="top">
+      <div>
+        <h1>ESP32 Camera Viewer</h1>
+        <p class="muted">Live video and board audio start automatically.</p>
+      </div>
+      <div class="pill" id="connection-pill">loading</div>
+    </header>
+
+    <section class="card viewer">
+      <div id="notice" class="notice notice-info">
+        Auto connect is enabled. If the browser blocks audio, click or tap once.
+      </div>
+      <div class="viewer-head">
+        <h2>Live</h2>
+        <div id="device-state" class="muted">waiting for connection...</div>
+      </div>
+      <div class="video-frame">
+        <img id="video" alt="Live video stream">
+      </div>
+    </section>
+
+    <section class="card talkback-card">
+      <h2>Talkback</h2>
+      <p class="muted">Phone or PC microphone to board speaker.</p>
+      <div class="actions">
+        <button id="talkback-toggle">Enable microphone</button>
+      </div>
+      <p class="muted" id="talkback-state">off</p>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
