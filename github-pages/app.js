@@ -102,7 +102,7 @@ function buildRelayWsUrl(kind, settings) {
 function ensureAudioContext() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) {
-    throw new Error("WebAudio не підтримується в цьому браузері");
+    throw new Error("WebAudio is not supported in this browser");
   }
   if (!state.audioCtx) {
     try {
@@ -209,7 +209,7 @@ function handleMqttMessage(topic, payload) {
     if (parsed._type === "state") {
       markBoardOnline();
       elements.deviceState.textContent = `camera=${parsed.camera || "-"} mic=${parsed.mic || "-"} speaker=${parsed.speaker || "-"}`;
-      setNotice("Відео і звук з плати підключені.", "info");
+      setNotice("Board video and audio are connected.", "info");
     }
     return;
   }
@@ -303,7 +303,7 @@ function connectMediaSocket(settings) {
       state.mediaWs = null;
       setConnectionPill();
       if (state.desiredConnection) {
-        setNotice("Канал медіа перепідключається...", "warn");
+        setNotice("Media channel is reconnecting...", "warn");
         scheduleMediaReconnect();
       }
     }
@@ -311,7 +311,7 @@ function connectMediaSocket(settings) {
 
   mediaWs.onerror = () => {
     if (state.mediaWs === mediaWs) {
-      setNotice("Помилка каналу медіа. Йде повторне підключення...", "warn");
+      setNotice("Media channel error. Reconnecting...", "warn");
     }
   };
 }
@@ -336,16 +336,16 @@ function connectMqtt(settings) {
 
   state.mqtt.on("connect", () => {
     setConnectionPill();
-    setNotice("Канал керування підключено. Чекаємо плату...", "info");
+    setNotice("Control channel connected. Waiting for board...", "info");
     state.mqtt.subscribe([state.topics.state, state.topics.presence], { qos: 0 }, (error) => {
       if (error) {
-        setNotice(`Помилка підписки MQTT: ${error.message}`, "error");
+        setNotice(`MQTT subscribe error: ${error.message}`, "error");
         return;
       }
       publishControl();
       state.boardPresenceTimer = setTimeout(() => {
         if (!state.boardPresenceSeen) {
-          setNotice("Плата ще не відгукнулась. Якщо зв’язок щойно піднявся, це може зайняти кілька секунд.", "warn");
+          setNotice("Board has not replied yet. This can take a few seconds after reconnect.", "warn");
         }
       }, 6000);
     });
@@ -354,16 +354,16 @@ function connectMqtt(settings) {
   state.mqtt.on("message", handleMqttMessage);
   state.mqtt.on("reconnect", () => {
     setConnectionPill();
-    setNotice("MQTT перепідключається...", "warn");
+    setNotice("MQTT is reconnecting...", "warn");
   });
   state.mqtt.on("close", () => {
     setConnectionPill();
     if (state.desiredConnection) {
-      setNotice("MQTT тимчасово відключився. Чекаємо перепідключення...", "warn");
+      setNotice("MQTT disconnected. Waiting for reconnect...", "warn");
     }
   });
   state.mqtt.on("error", (error) => {
-    setNotice(`Помилка MQTT: ${error.message}`, "error");
+    setNotice(`MQTT error: ${error.message}`, "error");
   });
 }
 
@@ -388,8 +388,8 @@ function stopTalkbackInternals() {
 }
 
 function updateTalkbackUi(active) {
-  elements.talkbackToggle.textContent = active ? "Вимкнути мікрофон" : "Увімкнути мікрофон";
-  elements.talkbackState.textContent = active ? "мікрофон увімкнено" : "вимкнено";
+  elements.talkbackToggle.textContent = active ? "Disable microphone" : "Enable microphone";
+  elements.talkbackState.textContent = active ? "microphone on" : "off";
 }
 
 function stopTalkback() {
@@ -404,7 +404,7 @@ function stopTalkback() {
     publishControl();
   }
   updateTalkbackUi(false);
-  setNotice("Мікрофон вимкнено.", "info");
+  setNotice("Microphone is off.", "info");
 }
 
 function downsampleToInt16(input, inputRate, targetRate, gain = 1) {
@@ -436,7 +436,7 @@ function downsampleToInt16(input, inputRate, targetRate, gain = 1) {
 
 async function startTalkback() {
   if (!state.desiredConnection || !state.currentSettings) {
-    throw new Error("Сторінка ще не підключилась до плати");
+    throw new Error("The page is not connected to the board yet");
   }
 
   const ctx = await unlockAudio();
@@ -496,7 +496,7 @@ async function startTalkback() {
     state.talkbackProcessor.connect(state.talkbackSink);
     state.talkbackSink.connect(ctx.destination);
     updateTalkbackUi(true);
-    setNotice("Мікрофон увімкнено. Звук з плати тимчасово приглушений, щоб не було луни.", "info");
+    setNotice("Microphone is on. Board audio is muted temporarily to avoid echo.", "info");
   };
 
   speakerWs.onclose = () => {
@@ -515,7 +515,7 @@ async function startTalkback() {
 
   speakerWs.onerror = () => {
     if (state.speakerWs === speakerWs) {
-      setNotice("Помилка каналу мікрофона.", "error");
+      setNotice("Talkback channel error.", "error");
     }
   };
 }
@@ -572,7 +572,7 @@ function bindEvents() {
     unlockAudio()
       .then(() => {
         if (state.boardPresenceSeen) {
-          setNotice("Звук увімкнено.", "info");
+          setNotice("Audio is enabled.", "info");
         }
       })
       .catch(() => {

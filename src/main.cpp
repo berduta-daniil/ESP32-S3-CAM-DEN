@@ -158,9 +158,9 @@ constexpr bool KEEP_CAMERA_INITIALIZED = false;
 constexpr bool AUTO_START_AV_ON_PAGE_LOAD = true;
 constexpr framesize_t CAMERA_FRAME_SIZE = FRAMESIZE_QVGA;
 constexpr int CAMERA_JPEG_QUALITY = 14;
-constexpr framesize_t RELAY_AV_CAMERA_FRAME_SIZE = FRAMESIZE_VGA;
+constexpr framesize_t RELAY_AV_CAMERA_FRAME_SIZE = FRAMESIZE_CIF;
 constexpr int RELAY_AV_CAMERA_JPEG_QUALITY = 12;
-constexpr framesize_t RELAY_VIDEO_ONLY_CAMERA_FRAME_SIZE = FRAMESIZE_VGA;
+constexpr framesize_t RELAY_VIDEO_ONLY_CAMERA_FRAME_SIZE = FRAMESIZE_HVGA;
 constexpr int RELAY_VIDEO_ONLY_CAMERA_JPEG_QUALITY = 10;
 constexpr framesize_t MQTT_AV_CAMERA_FRAME_SIZE = FRAMESIZE_QQVGA;
 constexpr int MQTT_AV_CAMERA_JPEG_QUALITY = 24;
@@ -170,7 +170,7 @@ constexpr size_t CAMERA_FB_COUNT = 1;
 constexpr uint16_t STREAM_DELAY_MS = 80;
 constexpr uint32_t CAMERA_IDLE_STOP_MS = 30000;
 constexpr uint32_t AUDIO_SAMPLE_RATE = 16000;
-constexpr size_t AUDIO_FRAMES = 128;
+constexpr size_t AUDIO_FRAMES = 256;
 constexpr i2s_port_t MIC_I2S_PORT = I2S_NUM_0;
 constexpr int AUDIO_SAMPLE_SHIFT = 0;
 constexpr int AUDIO_SAMPLE_GAIN = 4;
@@ -1465,8 +1465,8 @@ static void applyCameraSensorProfile(framesize_t frameSize, int jpegQuality, boo
   }
   if (fullTuning) {
     sensor->set_brightness(sensor, 0);
-    sensor->set_contrast(sensor, 0);
-    sensor->set_saturation(sensor, 0);
+    sensor->set_contrast(sensor, 1);
+    sensor->set_saturation(sensor, 1);
     sensor->set_gainceiling(sensor, GAINCEILING_8X);
     sensor->set_vflip(sensor, 0);
     sensor->set_hmirror(sensor, 0);
