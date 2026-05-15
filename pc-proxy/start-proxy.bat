@@ -56,7 +56,7 @@ node server.js
 goto done
 
 :internet
-if "%PROXY_TOKEN%"=="" set PROXY_TOKEN=esp32-%RANDOM%-%RANDOM%-%RANDOM%
+if "%PROXY_TOKEN%"=="" set PROXY_TOKEN=%RANDOM%%RANDOM%%RANDOM%
 
 if not exist tools mkdir tools
 set CLOUDFLARED=%~dp0tools\cloudflared.exe

@@ -126,7 +126,7 @@ function Start-TunnelProcess {
 function Show-PublicUrlAndWait {
   param($Tunnel)
 
-  $openUrl = if ($token) { "$($Tunnel.PublicUrl)/?token=$token" } else { "$($Tunnel.PublicUrl)/" }
+  $openUrl = if ($token) { "$($Tunnel.PublicUrl)/?token=$([uri]::EscapeDataString($token))" } else { "$($Tunnel.PublicUrl)/" }
 
   Write-Host ""
   Write-Host "INTERNET URL:"

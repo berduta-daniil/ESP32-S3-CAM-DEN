@@ -64,7 +64,7 @@ function sendUnauthorized(res) {
   sendText(
     res,
     401,
-    "<!doctype html><html><head><meta charset='utf-8'><title>Proxy locked</title></head><body><h1>Proxy locked</h1><p>Open this page with <code>?token=YOUR_TOKEN</code>.</p></body></html>",
+    `<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Proxy locked</title><style>body{font-family:system-ui,sans-serif;margin:32px;max-width:720px}input,button{font:inherit;padding:10px;margin-top:8px}input{min-width:280px}</style></head><body><h1>Proxy locked</h1><p>Open this page with <code>?token=YOUR_TOKEN</code>, or enter the token shown in the proxy window.</p><form method='GET' action='/'><label>Token<br><input name='token' autocomplete='off' autofocus></label><br><button type='submit'>Open video</button></form></body></html>`,
     "text/html; charset=utf-8"
   );
 }
