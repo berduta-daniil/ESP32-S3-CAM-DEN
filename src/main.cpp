@@ -1610,7 +1610,7 @@ static void handleStream() {
     client.println();
 
     if (mustFree) {
-      free(jpgBuffer);
+      free(jpgBuffer); 
     }
     esp_camera_fb_return(fb);
     lastCameraUseMs = millis();
