@@ -12,6 +12,7 @@ const PROXY_PORT = Number(process.env.PROXY_PORT || 8080);
 const ESP32_AUTH_USER = process.env.ESP32_AUTH_USER || "cam";
 const ESP32_AUTH_PASSWORD = process.env.ESP32_AUTH_PASSWORD || "1234";
 const PROXY_TOKEN = process.env.PROXY_TOKEN || "";
+const REQUEST_TIMEOUT_MS = Number(process.env.ESP32_REQUEST_TIMEOUT_MS || 15000);
 
 function basicAuthHeader() {
   if (!ESP32_AUTH_USER && !ESP32_AUTH_PASSWORD) {
@@ -68,6 +69,52 @@ function sendUnauthorized(res) {
   );
 }
 
+function checkEsp32Health() {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const req = http.request(
+      {
+        host: ESP32_HOST,
+        port: ESP32_HTTP_PORT,
+        method: "GET",
+        path: "/health",
+        timeout: 2500,
+        headers: {
+          Authorization: basicAuthHeader(),
+          Connection: "close",
+        },
+      },
+      (upstreamRes) => {
+        let body = "";
+        upstreamRes.setEncoding("utf8");
+        upstreamRes.on("data", (chunk) => {
+          if (body.length < 4096) body += chunk;
+        });
+        upstreamRes.on("end", () => {
+          resolve({
+            ok: upstreamRes.statusCode === 200,
+            statusCode: upstreamRes.statusCode,
+            elapsedMs: Date.now() - startedAt,
+            target: `${ESP32_HOST}:${ESP32_HTTP_PORT}`,
+            body,
+          });
+        });
+      }
+    );
+
+    req.on("timeout", () => req.destroy(new Error("ESP32 health timed out")));
+    req.on("error", (error) => {
+      resolve({
+        ok: false,
+        error: error.message,
+        elapsedMs: Date.now() - startedAt,
+        target: `${ESP32_HOST}:${ESP32_HTTP_PORT}`,
+      });
+    });
+    req.end();
+  });
+}
+
 function proxyHttp(req, res, targetPort, targetPath, useBoardAuth) {
   const headers = {
     Host: `${ESP32_HOST}:${targetPort}`,
@@ -91,7 +138,7 @@ function proxyHttp(req, res, targetPort, targetPath, useBoardAuth) {
       method: "GET",
       path: targetPath,
       headers,
-      timeout: 10000,
+      timeout: REQUEST_TIMEOUT_MS,
     },
     (upstreamRes) => {
       const responseHeaders = { ...upstreamRes.headers };
@@ -131,6 +178,7 @@ function pageHtml() {
     button,a{border:0;border-radius:6px;background:#2563eb;color:white;padding:9px 12px;font-weight:700;text-decoration:none;cursor:pointer}
     button.secondary,a.secondary{background:#374151}
     .status{color:#d1d5db;font-size:14px}
+    .error{position:fixed;left:12px;top:12px;max-width:min(720px,calc(100vw - 24px));padding:12px;background:rgba(127,29,29,.9);border:1px solid rgba(248,113,113,.8);border-radius:8px;color:#fee2e2;font-size:14px;display:none}
     code{color:#93c5fd}
   </style>
 </head>
@@ -138,6 +186,7 @@ function pageHtml() {
   <main class="stage">
     <img id="video" src="/video" alt="ESP32 live video">
   </main>
+  <div id="error" class="error"></div>
   <div class="panel">
     <button id="audioLeft">Audio left</button>
     <button id="audioRight" class="secondary">Audio right</button>
@@ -147,6 +196,8 @@ function pageHtml() {
   </div>
   <script>
     const statusEl = document.getElementById("status");
+    const errorEl = document.getElementById("error");
+    const videoEl = document.getElementById("video");
     let audioCtx = null;
     let ws = null;
     let nextAudioTime = 0;
@@ -158,6 +209,31 @@ function pageHtml() {
     function setStatus(text) {
       statusEl.textContent = text;
     }
+
+    function showError(text) {
+      errorEl.textContent = text;
+      errorEl.style.display = text ? "block" : "none";
+    }
+
+    async function checkStatus() {
+      try {
+        const response = await fetch("/status.json?cache=" + Date.now(), { cache: "no-store" });
+        const status = await response.json();
+        if (status.ok) {
+          showError("");
+          setStatus("ESP32 connected: " + status.target + " (" + status.elapsedMs + " ms)");
+        } else {
+          showError("ESP32 is not reachable from this PC: " + status.target + ". " + (status.error || ("HTTP " + status.statusCode)));
+        }
+      } catch (error) {
+        showError("Proxy status check failed: " + error.message);
+      }
+    }
+
+    videoEl.addEventListener("error", () => {
+      showError("Video did not load. Check ESP32 IP, Wi-Fi network, and /health.");
+      checkStatus();
+    });
 
     function stopAudio() {
       if (ws) {
@@ -216,6 +292,8 @@ function pageHtml() {
     document.getElementById("audioLeft").addEventListener("click", () => startAudio("left"));
     document.getElementById("audioRight").addEventListener("click", () => startAudio("right"));
     document.getElementById("audioStop").addEventListener("click", stopAudio);
+    checkStatus();
+    setInterval(checkStatus, 10000);
   </script>
 </body>
 </html>`;
@@ -237,6 +315,13 @@ function handleRequest(req, res) {
 
   if (path === "/") {
     sendText(res, 200, pageHtml(), "text/html; charset=utf-8");
+    return;
+  }
+
+  if (path === "/status.json") {
+    checkEsp32Health().then((status) => {
+      sendText(res, status.ok ? 200 : 502, JSON.stringify(status, null, 2), "application/json; charset=utf-8");
+    });
     return;
   }
 

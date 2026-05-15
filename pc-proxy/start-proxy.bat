@@ -10,11 +10,6 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if "%ESP32_HOST%"=="" (
-  set /p ESP32_HOST=ESP32 IP address [192.168.4.1]: 
-  if "%ESP32_HOST%"=="" set ESP32_HOST=192.168.4.1
-)
-
 if "%ESP32_HTTP_PORT%"=="" set ESP32_HTTP_PORT=80
 if "%ESP32_AUDIO_PORT%"=="" set ESP32_AUDIO_PORT=81
 if "%PROXY_PORT%"=="" set PROXY_PORT=8080
@@ -22,11 +17,32 @@ if "%PROXY_PORT%"=="" set PROXY_PORT=8080
 if "%ESP32_AUTH_USER%"=="" set ESP32_AUTH_USER=cam
 if "%ESP32_AUTH_PASSWORD%"=="" set ESP32_AUTH_PASSWORD=1234
 
+if "%ESP32_HOST%"=="" (
+  echo Searching for ESP32 board in local networks...
+  for /f "usebackq tokens=*" %%i in (`node find-board.js --first`) do set ESP32_HOST=%%i
+)
+
+if "%ESP32_HOST%"=="" (
+  set /p ESP32_HOST=ESP32 IP address [192.168.4.1]: 
+  if "%ESP32_HOST%"=="" set ESP32_HOST=192.168.4.1
+)
+
 echo.
 echo ESP32 video: http://%ESP32_HOST%:%ESP32_HTTP_PORT%/stream
 echo ESP32 audio: ws://%ESP32_HOST%:%ESP32_AUDIO_PORT%/audio.ws
 echo PC proxy:    http://localhost:%PROXY_PORT%/
 echo.
+
+node find-board.js --check "%ESP32_HOST%"
+if errorlevel 1 (
+  echo.
+  echo The PC cannot reach the ESP32 at %ESP32_HOST%.
+  echo Check that the board and this PC are in the same local network.
+  echo You can run find-board.bat to search again.
+  echo.
+  pause
+  exit /b 1
+)
 
 set OPEN_BROWSER=1
 node server.js

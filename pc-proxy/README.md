@@ -11,7 +11,8 @@ The browser opens one PC address, while the server forwards:
 
 1. Install Node.js LTS if it is not installed.
 2. Run `start-proxy.bat`.
-3. Enter the ESP32 IP, for example `192.168.4.1`.
+3. The script tries to find the ESP32 automatically. If it asks for an IP,
+   enter the board IP, for example `192.168.4.1`.
 4. Open `http://localhost:8080/`.
 
 The BAT file sets defaults:
@@ -22,6 +23,31 @@ ESP32_AUDIO_PORT=81
 PROXY_PORT=8080
 ESP32_AUTH_USER=cam
 ESP32_AUTH_PASSWORD=1234
+```
+
+## Find the board IP
+
+Run:
+
+```bat
+find-board.bat
+```
+
+If the board is connected to the same router as the PC, the IP should look like
+the PC/router subnet, for example `192.168.50.xxx`.
+
+If the board is not connected to that router, connect the PC directly to:
+
+```text
+SSID: ESP32-S3-CAM-DEN
+Password: 12345678
+Board IP: 192.168.4.1
+```
+
+You can also open PlatformIO Serial Monitor and copy the IP from:
+
+```text
+Router Wi-Fi connected. Open http://...
 ```
 
 ## Internet access
