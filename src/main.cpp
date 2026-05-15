@@ -1748,5 +1748,5 @@ void loop() {
                   speakerStatus.c_str());
   }
 
-  delay(2);
+  delay(2); 
 }
