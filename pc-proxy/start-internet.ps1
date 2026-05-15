@@ -52,6 +52,36 @@ function Stop-ExistingNgrokProcesses {
   Start-Sleep -Seconds 3
 }
 
+function Stop-ExistingProxyProcesses {
+  $projectPath = [System.IO.Path]::GetFullPath($PSScriptRoot).TrimEnd("\")
+  $processes = Get-CimInstance Win32_Process -Filter "name = 'node.exe'" -ErrorAction SilentlyContinue
+  if (-not $processes) {
+    return
+  }
+
+  $matched = @()
+  foreach ($process in $processes) {
+    $commandLine = [string]$process.CommandLine
+    if ($commandLine -match "(^|[\\/\s])server\.js(\s|$)" -or $commandLine.Contains($projectPath)) {
+      $matched += $process
+    }
+  }
+
+  if (-not $matched) {
+    return
+  }
+
+  Write-Host "Stopping previous local proxy processes..."
+  foreach ($process in $matched) {
+    try {
+      Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+    } catch {
+      Write-Host "Could not stop node PID $($process.ProcessId): $($_.Exception.Message)"
+    }
+  }
+  Start-Sleep -Seconds 2
+}
+
 function Write-LogLine {
   param([string]$Line)
   if ([string]::IsNullOrWhiteSpace($Line)) {
@@ -159,6 +189,8 @@ function Show-PublicUrlAndWait {
     Start-Sleep -Seconds 2
   }
 }
+
+Stop-ExistingProxyProcesses
 
 Write-Host "Starting local PC proxy on $localUrl ..."
 $node = Start-Process -FilePath "node" `
