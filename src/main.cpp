@@ -5,8 +5,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <math.h>
-#include "driver/i2s_pdm.h"
-#include "driver/i2s_std.h"
+#include "driver/i2s.h"
 #include "esp_heap_caps.h"
 #include "esp_camera.h"
 #include "freertos/semphr.h"
@@ -30,11 +29,11 @@
 #endif
 
 #ifndef WIFI_STA_SSID
-#define WIFI_STA_SSID "ASUS_24"
+#define WIFI_STA_SSID "TP-Link_7B6A"
 #endif
 
 #ifndef WIFI_STA_PASSWORD
-#define WIFI_STA_PASSWORD "15031979Olga"
+#define WIFI_STA_PASSWORD "28180969"
 #endif
 
 #ifndef WIFI_AP_SSID
@@ -156,6 +155,8 @@
 constexpr uint16_t HTTP_PORT = 80;
 constexpr uint16_t AUDIO_PORT = 81;
 constexpr uint16_t SPEAKER_INPUT_PORT = 82;
+constexpr uint32_t AUDIO_SERVER_TASK_STACK = 16384;
+constexpr uint32_t SPEAKER_INPUT_TASK_STACK = 12288;
 constexpr bool ENABLE_DIRECT_AP = true;
 constexpr bool INIT_CAMERA_BEFORE_WIFI = false;
 constexpr bool KEEP_CAMERA_INITIALIZED = false;
@@ -165,7 +166,7 @@ constexpr int CAMERA_JPEG_QUALITY = 14;
 constexpr framesize_t RELAY_AV_CAMERA_FRAME_SIZE = FRAMESIZE_CIF;
 constexpr int RELAY_AV_CAMERA_JPEG_QUALITY = 12;
 constexpr framesize_t RELAY_VIDEO_ONLY_CAMERA_FRAME_SIZE = FRAMESIZE_HVGA;
-constexpr int RELAY_VIDEO_ONLY_CAMERA_JPEG_QUALITY = 10;
+constexpr int RELAY_VIDEO_ONLY_CAMERA_JPEG_QUALITY = 18;
 constexpr framesize_t MQTT_AV_CAMERA_FRAME_SIZE = FRAMESIZE_QQVGA;
 constexpr int MQTT_AV_CAMERA_JPEG_QUALITY = 24;
 constexpr framesize_t MQTT_VIDEO_ONLY_CAMERA_FRAME_SIZE = FRAMESIZE_QVGA;
@@ -178,10 +179,12 @@ constexpr size_t AUDIO_FRAMES = 256;
 constexpr i2s_port_t MIC_I2S_PORT = I2S_NUM_0;
 constexpr int AUDIO_SAMPLE_SHIFT = 0;
 constexpr int AUDIO_SAMPLE_GAIN = 4;
+constexpr int RELAY_INTERCOM_CAPTURE_GAIN = 8;
 constexpr uint32_t SPEAKER_SAMPLE_RATE = 16000;
 constexpr size_t SPEAKER_FRAMES = 256;
 constexpr i2s_port_t SPEAKER_I2S_PORT = I2S_NUM_1;
 constexpr int SPEAKER_DEFAULT_AMPLITUDE = 2500;
+constexpr int RELAY_INTERCOM_PLAYBACK_GAIN = 2;
 constexpr size_t MQTT_AUDIO_FRAMES = 512;
 constexpr uint8_t RELAY_PACKET_VIDEO_JPEG = 1;
 constexpr uint8_t RELAY_PACKET_AUDIO_PCM = 2;
@@ -199,8 +202,6 @@ WiFiClient mqttTransport;
 #endif
 PubSubClient mqttClient(mqttTransport);
 
-i2s_chan_handle_t microphoneRxChannel = nullptr;
-i2s_chan_handle_t speakerTxChannel = nullptr;
 SemaphoreHandle_t speakerUseMutex = nullptr;
 SemaphoreHandle_t relaySocketMutex = nullptr;
 SemaphoreHandle_t mqttClientMutex = nullptr;
@@ -294,6 +295,10 @@ static bool hybridCloudMode() {
 
 static bool relayIntercomEnabled() {
   return relayConfigured() && RELAY_INTERCOM_ENABLED;
+}
+
+static bool relaySpeakerChannelEnabled() {
+  return relayIntercomEnabled() && !hybridCloudMode();
 }
 
 static bool claimRelaySocket(uint32_t timeoutMs = 100) {
@@ -424,6 +429,15 @@ static void releaseSpeaker() {
   }
 }
 
+static void stopSpeakerChannelHardware() {
+  if (speakerReady) {
+    i2s_zero_dma_buffer(SPEAKER_I2S_PORT);
+    i2s_stop(SPEAKER_I2S_PORT);
+    i2s_driver_uninstall(SPEAKER_I2S_PORT);
+  }
+  speakerReady = false;
+}
+
 static int16_t clampToInt16(int32_t sample) {
   if (sample > INT16_MAX) {
     return INT16_MAX;
@@ -457,53 +471,54 @@ static bool initMicrophone() {
   pinMode(MIC_PIN_LR, OUTPUT);
   digitalWrite(MIC_PIN_LR, LOW);
 
-  i2s_chan_config_t channelConfig = I2S_CHANNEL_DEFAULT_CONFIG(MIC_I2S_PORT, I2S_ROLE_MASTER);
-  channelConfig.dma_desc_num = 6;
-  channelConfig.dma_frame_num = AUDIO_FRAMES;
+  i2s_config_t micConfig = {};
+  micConfig.mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_PDM);
+  micConfig.sample_rate = AUDIO_SAMPLE_RATE;
+  micConfig.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+  micConfig.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT;
+  micConfig.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+  micConfig.intr_alloc_flags = 0;
+  micConfig.dma_buf_count = 6;
+  micConfig.dma_buf_len = AUDIO_FRAMES;
+  micConfig.use_apll = false;
+  micConfig.tx_desc_auto_clear = false;
+  micConfig.fixed_mclk = 0;
+  micConfig.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+  micConfig.bits_per_chan = I2S_BITS_PER_CHAN_16BIT;
 
-  esp_err_t err = i2s_new_channel(&channelConfig, nullptr, &microphoneRxChannel);
+  esp_err_t err = i2s_driver_install(MIC_I2S_PORT, &micConfig, 0, nullptr);
   if (err != ESP_OK) {
     char buffer[96];
     snprintf(buffer, sizeof(buffer), "PDM channel failed: 0x%04x", err);
     microphoneStatus = buffer;
     Serial.println(microphoneStatus);
-    microphoneRxChannel = nullptr;
     return false;
   }
 
-  i2s_pdm_rx_config_t pdmConfig = {};
-  pdmConfig.clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(AUDIO_SAMPLE_RATE);
-  pdmConfig.slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO);
-  pdmConfig.gpio_cfg.clk = static_cast<gpio_num_t>(MIC_PIN_CLK);
-#if SOC_I2S_PDM_MAX_RX_LINES > 1
-  pdmConfig.gpio_cfg.dins[0] = static_cast<gpio_num_t>(MIC_PIN_DATA);
-  for (int line = 1; line < SOC_I2S_PDM_MAX_RX_LINES; line++) {
-    pdmConfig.gpio_cfg.dins[line] = GPIO_NUM_NC;
-  }
-#else
-  pdmConfig.gpio_cfg.din = static_cast<gpio_num_t>(MIC_PIN_DATA);
-#endif
-  pdmConfig.gpio_cfg.invert_flags.clk_inv = false;
+  i2s_pin_config_t pinConfig = {};
+  pinConfig.mck_io_num = I2S_PIN_NO_CHANGE;
+  pinConfig.bck_io_num = MIC_PIN_CLK;
+  pinConfig.ws_io_num = I2S_PIN_NO_CHANGE;
+  pinConfig.data_out_num = I2S_PIN_NO_CHANGE;
+  pinConfig.data_in_num = MIC_PIN_DATA;
 
-  err = i2s_channel_init_pdm_rx_mode(microphoneRxChannel, &pdmConfig);
+  err = i2s_set_pin(MIC_I2S_PORT, &pinConfig);
   if (err != ESP_OK) {
     char buffer[96];
     snprintf(buffer, sizeof(buffer), "PDM init failed: 0x%04x", err);
     microphoneStatus = buffer;
     Serial.println(microphoneStatus);
-    i2s_del_channel(microphoneRxChannel);
-    microphoneRxChannel = nullptr;
+    i2s_driver_uninstall(MIC_I2S_PORT);
     return false;
   }
 
-  err = i2s_channel_enable(microphoneRxChannel);
+  err = i2s_set_pdm_rx_down_sample(MIC_I2S_PORT, I2S_PDM_DSR_8S);
   if (err != ESP_OK) {
     char buffer[96];
-    snprintf(buffer, sizeof(buffer), "PDM enable failed: 0x%04x", err);
+    snprintf(buffer, sizeof(buffer), "PDM downsample failed: 0x%04x", err);
     microphoneStatus = buffer;
     Serial.println(microphoneStatus);
-    i2s_del_channel(microphoneRxChannel);
-    microphoneRxChannel = nullptr;
+    i2s_driver_uninstall(MIC_I2S_PORT);
     return false;
   }
 
@@ -519,11 +534,8 @@ static void stopMicrophone() {
     return;
   }
 
-  if (microphoneRxChannel != nullptr) {
-    i2s_channel_disable(microphoneRxChannel);
-    i2s_del_channel(microphoneRxChannel);
-    microphoneRxChannel = nullptr;
-  }
+  i2s_stop(MIC_I2S_PORT);
+  i2s_driver_uninstall(MIC_I2S_PORT);
   microphoneReady = false;
   microphoneStatus = "standby";
   lastMicrophoneReadError = ESP_OK;
@@ -536,17 +548,17 @@ static esp_err_t readMicrophoneSamples(int16_t *samples,
                                        size_t *bytesRead,
                                        uint32_t timeoutMs) {
   *bytesRead = 0;
-  if (microphoneRxChannel == nullptr) {
+  if (!microphoneReady) {
     lastMicrophoneReadError = ESP_ERR_INVALID_STATE;
     lastMicrophoneBytesRead = 0;
     return lastMicrophoneReadError;
   }
 
-  esp_err_t err = i2s_channel_read(microphoneRxChannel,
-                                   samples,
-                                   sampleCount * sizeof(samples[0]),
-                                   bytesRead,
-                                   timeoutMs);
+  esp_err_t err = i2s_read(MIC_I2S_PORT,
+                           samples,
+                           sampleCount * sizeof(samples[0]),
+                           bytesRead,
+                           pdMS_TO_TICKS(timeoutMs));
   lastMicrophoneReadError = err;
   lastMicrophoneBytesRead = *bytesRead;
   return err;
@@ -579,54 +591,56 @@ static bool initSpeaker() {
   digitalWrite(SPEAKER_PIN_PA_CTRL, HIGH);
   delay(20);
 
-  i2s_chan_config_t channelConfig = I2S_CHANNEL_DEFAULT_CONFIG(SPEAKER_I2S_PORT, I2S_ROLE_MASTER);
-  channelConfig.dma_desc_num = 4;
-  channelConfig.dma_frame_num = SPEAKER_FRAMES;
-  channelConfig.auto_clear_after_cb = true;
+  i2s_config_t speakerConfig = {};
+  speakerConfig.mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_TX);
+  speakerConfig.sample_rate = SPEAKER_SAMPLE_RATE;
+  speakerConfig.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+  speakerConfig.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
+  speakerConfig.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+  speakerConfig.intr_alloc_flags = 0;
+  speakerConfig.dma_buf_count = 4;
+  speakerConfig.dma_buf_len = SPEAKER_FRAMES;
+  speakerConfig.use_apll = false;
+  speakerConfig.tx_desc_auto_clear = true;
+  speakerConfig.fixed_mclk = 0;
+  speakerConfig.mclk_multiple = I2S_MCLK_MULTIPLE_256;
+  speakerConfig.bits_per_chan = I2S_BITS_PER_CHAN_16BIT;
 
-  esp_err_t err = i2s_new_channel(&channelConfig, &speakerTxChannel, nullptr);
+  esp_err_t err = i2s_driver_install(SPEAKER_I2S_PORT, &speakerConfig, 0, nullptr);
   if (err != ESP_OK) {
     char buffer[96];
     snprintf(buffer, sizeof(buffer), "Speaker channel failed: 0x%04x", err);
     speakerStatus = buffer;
     Serial.println(speakerStatus);
-    speakerTxChannel = nullptr;
     digitalWrite(SPEAKER_PIN_PA_CTRL, LOW);
     return false;
   }
 
-  i2s_std_config_t stdConfig = {};
-  stdConfig.clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SPEAKER_SAMPLE_RATE);
-  stdConfig.slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO);
-  stdConfig.gpio_cfg.mclk = I2S_GPIO_UNUSED;
-  stdConfig.gpio_cfg.bclk = static_cast<gpio_num_t>(SPEAKER_PIN_BCLK);
-  stdConfig.gpio_cfg.ws = static_cast<gpio_num_t>(SPEAKER_PIN_LRCLK);
-  stdConfig.gpio_cfg.dout = static_cast<gpio_num_t>(SPEAKER_PIN_DOUT);
-  stdConfig.gpio_cfg.din = I2S_GPIO_UNUSED;
-  stdConfig.gpio_cfg.invert_flags.mclk_inv = false;
-  stdConfig.gpio_cfg.invert_flags.bclk_inv = false;
-  stdConfig.gpio_cfg.invert_flags.ws_inv = false;
+  i2s_pin_config_t pinConfig = {};
+  pinConfig.mck_io_num = I2S_PIN_NO_CHANGE;
+  pinConfig.bck_io_num = SPEAKER_PIN_BCLK;
+  pinConfig.ws_io_num = SPEAKER_PIN_LRCLK;
+  pinConfig.data_out_num = SPEAKER_PIN_DOUT;
+  pinConfig.data_in_num = I2S_PIN_NO_CHANGE;
 
-  err = i2s_channel_init_std_mode(speakerTxChannel, &stdConfig);
+  err = i2s_set_pin(SPEAKER_I2S_PORT, &pinConfig);
   if (err != ESP_OK) {
     char buffer[96];
     snprintf(buffer, sizeof(buffer), "Speaker init failed: 0x%04x", err);
     speakerStatus = buffer;
     Serial.println(speakerStatus);
-    i2s_del_channel(speakerTxChannel);
-    speakerTxChannel = nullptr;
+    i2s_driver_uninstall(SPEAKER_I2S_PORT);
     digitalWrite(SPEAKER_PIN_PA_CTRL, LOW);
     return false;
   }
 
-  err = i2s_channel_enable(speakerTxChannel);
+  err = i2s_zero_dma_buffer(SPEAKER_I2S_PORT);
   if (err != ESP_OK) {
     char buffer[96];
     snprintf(buffer, sizeof(buffer), "Speaker enable failed: 0x%04x", err);
     speakerStatus = buffer;
     Serial.println(speakerStatus);
-    i2s_del_channel(speakerTxChannel);
-    speakerTxChannel = nullptr;
+    i2s_driver_uninstall(SPEAKER_I2S_PORT);
     digitalWrite(SPEAKER_PIN_PA_CTRL, LOW);
     return false;
   }
@@ -639,7 +653,7 @@ static bool initSpeaker() {
 }
 
 static void speakerSilence(uint16_t frames = SPEAKER_FRAMES) {
-  if (!speakerReady || speakerTxChannel == nullptr) {
+  if (!speakerReady) {
     return;
   }
 
@@ -648,17 +662,17 @@ static void speakerSilence(uint16_t frames = SPEAKER_FRAMES) {
   while (framesLeft > 0) {
     size_t framesToWrite = min(framesLeft, SPEAKER_FRAMES);
     size_t bytesWritten = 0;
-    i2s_channel_write(speakerTxChannel,
-                      silence,
-                      framesToWrite * 2 * sizeof(silence[0]),
-                      &bytesWritten,
-                      200);
+    i2s_write(SPEAKER_I2S_PORT,
+              silence,
+              framesToWrite * 2 * sizeof(silence[0]),
+              &bytesWritten,
+              pdMS_TO_TICKS(200));
     framesLeft -= framesToWrite;
   }
 }
 
 static bool writeSpeakerMonoPcm(const int16_t *monoSamples, size_t frameCount, int gain = 1) {
-  if (!speakerReady || speakerTxChannel == nullptr || monoSamples == nullptr || frameCount == 0) {
+  if (!speakerReady || monoSamples == nullptr || frameCount == 0) {
     return false;
   }
 
@@ -673,11 +687,11 @@ static bool writeSpeakerMonoPcm(const int16_t *monoSamples, size_t frameCount, i
     }
 
     size_t bytesWritten = 0;
-    esp_err_t err = i2s_channel_write(speakerTxChannel,
-                                      stereoSamples,
-                                      chunkFrames * 2 * sizeof(stereoSamples[0]),
-                                      &bytesWritten,
-                                      200);
+    esp_err_t err = i2s_write(SPEAKER_I2S_PORT,
+                              stereoSamples,
+                              chunkFrames * 2 * sizeof(stereoSamples[0]),
+                              &bytesWritten,
+                              pdMS_TO_TICKS(200));
     if (err != ESP_OK || bytesWritten == 0) {
       return false;
     }
@@ -1942,11 +1956,11 @@ static void playSpeakerTone(uint32_t durationMs, uint16_t frequencyHz, int ampli
     }
 
     size_t bytesWritten = 0;
-    i2s_channel_write(speakerTxChannel,
-                      stereoSamples,
-                      sizeof(stereoSamples),
-                      &bytesWritten,
-                      200);
+    i2s_write(SPEAKER_I2S_PORT,
+              stereoSamples,
+              sizeof(stereoSamples),
+              &bytesWritten,
+              pdMS_TO_TICKS(200));
     yield();
   }
 
@@ -2037,11 +2051,11 @@ static void handleSpeakerMic() {
     }
 
     size_t bytesWritten = 0;
-    i2s_channel_write(speakerTxChannel,
-                      stereoSamples,
-                      frameCount * 2 * sizeof(stereoSamples[0]),
-                      &bytesWritten,
-                      200);
+    i2s_write(SPEAKER_I2S_PORT,
+              stereoSamples,
+              frameCount * 2 * sizeof(stereoSamples[0]),
+              &bytesWritten,
+              pdMS_TO_TICKS(200));
     yield();
   }
 
@@ -2062,12 +2076,7 @@ static void handleSpeakerDisable() {
 
   if (speakerReady) {
     speakerSilence(512);
-    if (speakerTxChannel != nullptr) {
-      i2s_channel_disable(speakerTxChannel);
-      i2s_del_channel(speakerTxChannel);
-      speakerTxChannel = nullptr;
-    }
-    speakerReady = false;
+    stopSpeakerChannelHardware();
   }
   pinMode(SPEAKER_PIN_PA_CTRL, OUTPUT);
   digitalWrite(SPEAKER_PIN_PA_CTRL, LOW);
@@ -2149,7 +2158,7 @@ static bool relayWriteSpeakerPcmBytes(const uint8_t *payload, size_t payloadLeng
       monoSamples[i] = static_cast<int16_t>((hi << 8) | lo);
     }
 
-    if (!writeSpeakerMonoPcm(monoSamples, frameCount, 1)) {
+    if (!writeSpeakerMonoPcm(monoSamples, frameCount, RELAY_INTERCOM_PLAYBACK_GAIN)) {
       return false;
     }
     offset += chunkBytes;
@@ -2336,12 +2345,15 @@ static void relayMediaTask(void *parameter) {
     bool didWork = false;
     bool videoRequested = hybridCloudMode() ? mqttVideoRequested : relayVideoRequested;
     bool audioRequested = hybridCloudMode() ? mqttAudioRequested : relayAudioRequested;
-    if (relayIntercomEnabled()) {
+    if (relayIntercomEnabled() && !hybridCloudMode()) {
       audioRequested = true;
     }
     bool useRightChannel = hybridCloudMode() ? mqttUseRightChannel : relayUseRightChannel;
     int audioShift = hybridCloudMode() ? mqttAudioShift : relayAudioShift;
     int audioGain = hybridCloudMode() ? mqttAudioGain : relayAudioGain;
+    if (relayIntercomEnabled() && !hybridCloudMode()) {
+      audioGain = max(audioGain, RELAY_INTERCOM_CAPTURE_GAIN);
+    }
     bool talkbackActive = relayTalkbackActive() || mqttTalkbackActive();
 
     if (relayConfigured() && relayMediaConnected && audioRequested && !talkbackActive) {
@@ -2422,31 +2434,43 @@ static void startRelayClients() {
   relaySpeakerPath = relayBuildPath("speaker");
   relayControlPath = hybridCloudMode() ? "" : relayBuildPath("control");
   relaySocketMutex = xSemaphoreCreateRecursiveMutex();
+  const bool speakerChannelEnabled = relaySpeakerChannelEnabled();
 
   relayMediaSocket.onEvent(relayMediaSocketEvent);
-  relaySpeakerSocket.onEvent(relaySpeakerSocketEvent);
+  if (speakerChannelEnabled) {
+    relaySpeakerSocket.onEvent(relaySpeakerSocketEvent);
+  }
   if (!hybridCloudMode()) {
     relayControlSocket.onEvent(relayControlSocketEvent);
   }
 
   if (RELAY_USE_TLS) {
     relayMediaSocket.beginSSL(RELAY_HOST, RELAY_PORT, relayMediaPath.c_str());
-    relaySpeakerSocket.beginSSL(RELAY_HOST, RELAY_PORT, relaySpeakerPath.c_str());
+    if (speakerChannelEnabled) {
+      relaySpeakerSocket.beginSSL(RELAY_HOST, RELAY_PORT, relaySpeakerPath.c_str());
+    }
     if (!hybridCloudMode()) {
       relayControlSocket.beginSSL(RELAY_HOST, RELAY_PORT, relayControlPath.c_str());
     }
   } else {
     relayMediaSocket.begin(RELAY_HOST, RELAY_PORT, relayMediaPath.c_str());
-    relaySpeakerSocket.begin(RELAY_HOST, RELAY_PORT, relaySpeakerPath.c_str());
+    if (speakerChannelEnabled) {
+      relaySpeakerSocket.begin(RELAY_HOST, RELAY_PORT, relaySpeakerPath.c_str());
+    }
     if (!hybridCloudMode()) {
       relayControlSocket.begin(RELAY_HOST, RELAY_PORT, relayControlPath.c_str());
     }
   }
 
   relayMediaSocket.setReconnectInterval(RELAY_RECONNECT_INTERVAL_MS);
-  relaySpeakerSocket.setReconnectInterval(RELAY_RECONNECT_INTERVAL_MS);
   relayMediaSocket.enableHeartbeat(15000, 3000, 2);
-  relaySpeakerSocket.enableHeartbeat(15000, 3000, 2);
+  if (speakerChannelEnabled) {
+    relaySpeakerSocket.setReconnectInterval(RELAY_RECONNECT_INTERVAL_MS);
+    relaySpeakerSocket.enableHeartbeat(15000, 3000, 2);
+  } else {
+    relaySpeakerConnected = false;
+    Serial.println("Cloud speaker relay skipped in hybrid mode");
+  }
   if (!hybridCloudMode()) {
     relayControlSocket.setReconnectInterval(RELAY_RECONNECT_INTERVAL_MS);
     relayControlSocket.enableHeartbeat(15000, 3000, 2);
@@ -2851,7 +2875,7 @@ static void startAudioServer() {
   BaseType_t taskStarted = xTaskCreatePinnedToCore(
       audioServerTask,
       "audio_http",
-      6144,
+      AUDIO_SERVER_TASK_STACK,
       nullptr,
       1,
       nullptr,
@@ -2870,7 +2894,7 @@ static void startSpeakerInputServer() {
   BaseType_t taskStarted = xTaskCreatePinnedToCore(
       speakerInputServerTask,
       "speaker_ws",
-      6144,
+      SPEAKER_INPUT_TASK_STACK,
       nullptr,
       1,
       nullptr,
@@ -2924,7 +2948,9 @@ void loop() {
       relayControlSocket.loop();
     }
     relayMediaSocket.loop();
-    relaySpeakerSocket.loop();
+    if (relaySpeakerChannelEnabled()) {
+      relaySpeakerSocket.loop();
+    }
     releaseRelaySocket();
   }
 
