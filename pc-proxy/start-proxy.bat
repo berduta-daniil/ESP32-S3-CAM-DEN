@@ -44,9 +44,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if "%INTERNET_TUNNEL%"=="" (
-  set /p INTERNET_TUNNEL=Open video to internet via Cloudflare Tunnel? [y/N]: 
-)
+if "%INTERNET_TUNNEL%"=="" set INTERNET_TUNNEL=Y
 
 if /I "%INTERNET_TUNNEL%"=="Y" goto internet
 if /I "%INTERNET_TUNNEL%"=="YES" goto internet
@@ -76,14 +74,9 @@ echo.
 echo Local proxy:  http://localhost:%PROXY_PORT%/
 echo Access token: %PROXY_TOKEN%
 echo.
-echo For fully automatic browser opening, ngrok is recommended.
-echo Get a free token from: https://dashboard.ngrok.com/get-started/your-authtoken
-if "%NGROK_AUTHTOKEN%"=="" (
-  set /p NGROK_AUTHTOKEN=Ngrok authtoken [Enter to skip]: 
-)
-echo.
-echo The script will try ngrok first if token is provided.
-echo Then it will try Cloudflare Tunnel.
+echo Internet tunnel starts automatically.
+echo The script will try ngrok first using the saved ngrok configuration.
+echo Then it will try Cloudflare Tunnel if ngrok fails.
 echo If Cloudflare times out, it will try localtunnel automatically.
 echo The script will print and open the real public URL.
 echo Keep this window open while streaming.

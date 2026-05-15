@@ -58,23 +58,20 @@ Run:
 start-proxy.bat
 ```
 
-When it asks:
+The script starts the internet tunnel automatically. It tries ngrok first,
+using the saved ngrok configuration from a previous successful login.
 
-```text
-Open video to internet via Cloudflare Tunnel? [y/N]:
-```
-
-enter:
-
-```text
-y
-```
-
-For fully automatic browser opening, use ngrok:
+For the first ngrok setup:
 
 1. Create a free ngrok account.
 2. Copy your token from `https://dashboard.ngrok.com/get-started/your-authtoken`.
-3. Paste it when `start-proxy.bat` asks for `Ngrok authtoken`.
+3. Run once:
+
+```bat
+pc-proxy\tools\ngrok.exe config add-authtoken YOUR_TOKEN
+```
+
+After that, `start-proxy.bat` does not ask for the token again.
 
 The script downloads `ngrok.exe` into `pc-proxy\tools` if needed, starts the
 local proxy, and opens a public URL like:

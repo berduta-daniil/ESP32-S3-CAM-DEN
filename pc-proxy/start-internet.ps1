@@ -210,31 +210,32 @@ try {
   New-Item -Path $logPath -ItemType File -Force | Out-Null
 
   Write-Host ""
+  Write-Host "Trying ngrok first..."
+  $ngrokExe = Ensure-Ngrok
+  Stop-ExistingNgrokProcesses
   if ($env:NGROK_AUTHTOKEN) {
-    Write-Host "Trying ngrok first..."
-    $ngrokExe = Ensure-Ngrok
-    Stop-ExistingNgrokProcesses
     & $ngrokExe config add-authtoken $env:NGROK_AUTHTOKEN | ForEach-Object { Write-LogLine $_ }
-
-    $activeTunnel = Start-TunnelProcess `
-      -Name "ngrok" `
-      -FileName $ngrokExe `
-      -Arguments "http $proxyPort --log stdout" `
-      -UrlRegex "https://[-a-zA-Z0-9.]+\.ngrok[-a-zA-Z0-9.]*\.(app|io|dev)" `
-      -TimeoutSeconds 45
-
-    if ($activeTunnel.PublicUrl) {
-      Show-PublicUrlAndWait $activeTunnel
-      return
-    }
-
-    Write-Host ""
-    Write-Host "ngrok did not create a public URL."
-    Stop-TunnelProcess $activeTunnel
-    $activeTunnel = $null
   } else {
-    Write-Host "No NGROK_AUTHTOKEN was provided, skipping ngrok."
+    Write-Host "No NGROK_AUTHTOKEN environment variable was provided."
+    Write-Host "Using saved ngrok config if it exists."
   }
+
+  $activeTunnel = Start-TunnelProcess `
+    -Name "ngrok" `
+    -FileName $ngrokExe `
+    -Arguments "http $proxyPort --log stdout" `
+    -UrlRegex "https://[-a-zA-Z0-9.]+\.ngrok[-a-zA-Z0-9.]*\.(app|io|dev)" `
+    -TimeoutSeconds 45
+
+  if ($activeTunnel.PublicUrl) {
+    Show-PublicUrlAndWait $activeTunnel
+    return
+  }
+
+  Write-Host ""
+  Write-Host "ngrok did not create a public URL."
+  Stop-TunnelProcess $activeTunnel
+  $activeTunnel = $null
 
   Write-Host ""
   Write-Host "Trying Cloudflare Tunnel..."
