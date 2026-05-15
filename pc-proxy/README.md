@@ -52,8 +52,41 @@ Router Wi-Fi connected. Open http://...
 
 ## Internet access
 
-Expose the PC proxy, not the ESP32 directly. For example, use Cloudflare Tunnel,
-ngrok, Tailscale Funnel, or router port forwarding to the PC port `8080`.
+Run:
+
+```bat
+start-proxy.bat
+```
+
+When it asks:
+
+```text
+Open video to internet via Cloudflare Tunnel? [y/N]:
+```
+
+enter:
+
+```text
+y
+```
+
+The script downloads `cloudflared.exe` into `pc-proxy\tools` if needed, starts
+the local proxy, and prints a public URL like:
+
+```text
+https://example.trycloudflare.com
+```
+
+Open it from the internet with the token shown by the script:
+
+```text
+https://example.trycloudflare.com/?token=esp32-12345-12345-12345
+```
+
+Keep the BAT window open while streaming.
+
+You can also expose the PC proxy with ngrok, Tailscale Funnel, or router port
+forwarding to the PC port `8080`.
 
 For public access, set a token before running:
 

@@ -44,8 +44,50 @@ if errorlevel 1 (
   exit /b 1
 )
 
+if "%INTERNET_TUNNEL%"=="" (
+  set /p INTERNET_TUNNEL=Open video to internet via Cloudflare Tunnel? [y/N]: 
+)
+
+if /I "%INTERNET_TUNNEL%"=="Y" goto internet
+if /I "%INTERNET_TUNNEL%"=="YES" goto internet
+
 set OPEN_BROWSER=1
 node server.js
+goto done
 
+:internet
+if "%PROXY_TOKEN%"=="" set PROXY_TOKEN=esp32-%RANDOM%-%RANDOM%-%RANDOM%
+
+if not exist tools mkdir tools
+set CLOUDFLARED=%~dp0tools\cloudflared.exe
+
+if not exist "%CLOUDFLARED%" (
+  echo.
+  echo Downloading Cloudflare Tunnel client...
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '%CLOUDFLARED%'"
+  if errorlevel 1 (
+    echo Failed to download cloudflared.exe.
+    pause
+    exit /b 1
+  )
+)
+
+echo.
+echo Local proxy:  http://localhost:%PROXY_PORT%/
+echo Access token: %PROXY_TOKEN%
+echo.
+echo Cloudflare will print a public URL like:
+echo   https://example.trycloudflare.com
+echo.
+echo Open it from the internet as:
+echo   https://example.trycloudflare.com/?token=%PROXY_TOKEN%
+echo.
+echo Keep this window open while streaming.
+echo Press Ctrl+C to stop the internet tunnel.
+echo.
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0start-internet.ps1" -CloudflaredPath "%CLOUDFLARED%"
+
+:done
 echo.
 pause

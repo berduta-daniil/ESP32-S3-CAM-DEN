@@ -8,3 +8,4 @@ include/relay_config.h
 include/mqtt_bridge_config.h
 cloud-relay/.env
 pc-proxy/.env
+pc-proxy/tools/
