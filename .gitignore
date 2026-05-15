@@ -9,3 +9,4 @@ include/mqtt_bridge_config.h
 cloud-relay/.env
 pc-proxy/.env
 pc-proxy/tools/
+pc-proxy/cloudflared-last.log

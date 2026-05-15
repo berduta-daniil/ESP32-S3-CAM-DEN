@@ -71,17 +71,15 @@ y
 ```
 
 The script downloads `cloudflared.exe` into `pc-proxy\tools` if needed, starts
-the local proxy, and prints a public URL like:
+the local proxy, waits for Cloudflare to create the real public URL, and opens
+it automatically. The URL will look similar to:
 
 ```text
-https://example.trycloudflare.com
+https://random-words.trycloudflare.com/?token=esp32-12345-12345-12345
 ```
 
-Open it from the internet with the token shown by the script:
-
-```text
-https://example.trycloudflare.com/?token=esp32-12345-12345-12345
-```
+Use the exact URL printed by the script. Do not use `example.trycloudflare.com`;
+that is only a placeholder.
 
 Keep the BAT window open while streaming.
 
