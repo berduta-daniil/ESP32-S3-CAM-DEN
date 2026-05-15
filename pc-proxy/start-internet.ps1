@@ -144,7 +144,7 @@ try {
     -Name "Cloudflare Tunnel" `
     -FileName $CloudflaredPath `
     -Arguments $cloudflareArgs `
-    -UrlRegex "https://[-a-zA-Z0-9]+\.trycloudflare\.com" `
+    -UrlRegex "https://(?!api\.)[-a-zA-Z0-9]+\.trycloudflare\.com" `
     -TimeoutSeconds 35
 
   if ($activeTunnel.PublicUrl) {
